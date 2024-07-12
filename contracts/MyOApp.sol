@@ -6,9 +6,10 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { MessagingReceipt, MessagingParams } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 
-contract MyOApp is OApp {
+contract DaikoBridge is OApp {
     // emit AddedNativeTokens(address owner, uint256 amt);
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
+
     constructor(address _endpoint, address _delegate) OApp(_endpoint, _delegate) Ownable(_delegate) {}
 
     /**

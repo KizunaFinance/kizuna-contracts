@@ -6,8 +6,8 @@ import { Options } from '@layerzerolabs/lz-v2-utilities'
 const main = async () => {
     // 0xB458B11562646A662AB2Ded927c2e2e8564e0201
     // 0xdfa96d5E31177F182fc95790Be712D238d0d3b83
-    const addrA = '0xd893ecA437965Aea802b2aB4A10317e67cFB0275'
-    const addrB = '0xdfa96d5E31177F182fc95790Be712D238d0d3b83'
+    const addrA = '0xB4768d706cf13f75844034EDAEcBe5705cd22b22'
+    const addrB = '0x9eEeA4611b59df614cC2F111805e21468CDFf4E3'
     const eidA = EndpointId.HOLESKY_V2_TESTNET
     const eidB = EndpointId.SEPOLIA_V2_TESTNET
 

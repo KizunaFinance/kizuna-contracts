@@ -25,8 +25,8 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY
 const accounts: HttpNetworkAccountsUserConfig | undefined = MNEMONIC
     ? { mnemonic: MNEMONIC }
     : PRIVATE_KEY
-      ? [PRIVATE_KEY]
-      : undefined
+        ? [PRIVATE_KEY]
+        : undefined
 
 if (accounts == null) {
     console.warn(
@@ -64,9 +64,9 @@ const config: HardhatUserConfig = {
         //     url: process.env.RPC_URL_AMOY || 'https://polygon-amoy-bor-rpc.publicnode.com',
         //     accounts,
         // },
-        holesky: {
-            eid: EndpointId.HOLESKY_V2_TESTNET,
-            url: 'https://1rpc.io/holesky',
+        hekla: {
+            eid: EndpointId.TAIKO_TESTNET,
+            url: 'https://rpc.hekla.taiko.xyz',
             accounts,
         },
     },
