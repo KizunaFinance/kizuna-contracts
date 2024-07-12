@@ -6,9 +6,15 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { MessagingReceipt, MessagingParams } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 
+interface iStaking {
+    function transferLiquidity(address _to, uint256 _amount) external;
+}
+
 contract DaikoBridge is OApp {
     // emit AddedNativeTokens(address owner, uint256 amt);
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
+
+    iStaking public ethVault;
 
     constructor(address _endpoint, address _delegate) OApp(_endpoint, _delegate) Ownable(_delegate) {}
 
@@ -32,6 +38,10 @@ contract DaikoBridge is OApp {
             MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
             payable(msg.sender)
         );
+    }
+
+    function setEthVaultAddress(address _ethVaultAddress) external onlyOwner {
+        ethVault = iStaking(_ethVaultAddress);
     }
 
     /**
@@ -73,8 +83,10 @@ contract DaikoBridge is OApp {
         address recvAddress;
         (recvAmount, recvAddress) = abi.decode(payload, (uint256, address));
 
-        (bool success, ) = recvAddress.call{ value: recvAmount }("");
-        require(success, "Transfer failed");
+        // (bool success, ) = recvAddress.call{ value: recvAmount }("");
+        // require(success, "Transfer failed");
+
+        ethVault.transferLiquidity(recvAddress, recvAmount);
 
         emit ReceiveEvent(recvAmount, recvAddress);
     }
