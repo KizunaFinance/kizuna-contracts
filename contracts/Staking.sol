@@ -23,6 +23,10 @@ contract dEth is iDETH, ERC20, Ownable {
         _spendAllowance(account, _msgSender(), value);
         _burn(account, value);
     }
+
+    function _transfer(address from, address to, uint256 amount) internal override {
+        revert("dETH: transfers are disabled");
+    }
 }
 
 contract Staking is AccessControl {
@@ -45,11 +49,15 @@ contract Staking is AccessControl {
         _grantRole(LIQUIDITY_MANAGER_ROLE, msg.sender);
     }
 
+    function changeLiquidityManager(address newManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _revokeRole(LIQUIDITY_MANAGER_ROLE, msg.sender);
+        _grantRole(LIQUIDITY_MANAGER_ROLE, newManager);
+    }
+
     function stake() external payable {
         require(msg.value > 0, "Cannot stake 0 ETH");
         stakedBalances[msg.sender] += msg.value;
         dEthToken.mint(msg.sender, msg.value);
-
         // Emit Staked event
         emit Staked(msg.sender, msg.value);
     }
