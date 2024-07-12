@@ -5,8 +5,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract Staking is AccessControl {
+contract Staking is AccessControl, ReentrancyGuard {
     bytes32 public constant LIQUIDITY_MANAGER_ROLE = keccak256("LIQUIDITY_MANAGER_ROLE");
 
     mapping(address => uint256) public stakedBalances;
@@ -29,14 +30,14 @@ contract Staking is AccessControl {
         _grantRole(LIQUIDITY_MANAGER_ROLE, newManager);
     }
 
-    function stake() external payable {
+    function stake() external payable nonReentrant {
         require(msg.value > 0, "Cannot stake 0 ETH");
         stakedBalances[msg.sender] += msg.value;
         // Emit Staked event
         emit Staked(msg.sender, msg.value);
     }
 
-    function unstake(uint256 _amount) external {
+    function unstake(uint256 _amount) external nonReentrant {
         require(stakedBalances[msg.sender] >= _amount, "Insufficient staked balance");
 
         unstakeTimestamps[msg.sender] = block.timestamp;
@@ -46,7 +47,7 @@ contract Staking is AccessControl {
         emit Unstaked(msg.sender, _amount, block.timestamp);
     }
 
-    function withdraw(uint256 _amount) external {
+    function withdraw(uint256 _amount) external nonReentrant {
         require(block.timestamp >= unstakeTimestamps[msg.sender] + COOLDOWN_PERIOD, "Cooldown period not yet passed");
         payable(msg.sender).transfer(_amount);
 
@@ -54,7 +55,7 @@ contract Staking is AccessControl {
         emit Withdrawn(msg.sender, _amount);
     }
 
-    function transferLiquidity(address _to, uint256 _amount) external onlyRole(LIQUIDITY_MANAGER_ROLE) {
+    function transferLiquidity(address _to, uint256 _amount) external nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) {
         require(address(this).balance >= _amount, "Insufficient contract balance");
         payable(_to).transfer(_amount);
 
