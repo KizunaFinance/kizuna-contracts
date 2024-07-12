@@ -2,9 +2,9 @@ import { EndpointId } from '@layerzerolabs/lz-definitions'
 
 import type { OAppOmniGraphHardhat, OmniPointHardhat } from '@layerzerolabs/toolbox-hardhat'
 
-const sepoliaContract: OmniPointHardhat = {
-    eid: EndpointId.SEPOLIA_V2_TESTNET,
-    contractName: 'MyOApp',
+const holeskyContract: OmniPointHardhat = {
+    eid: EndpointId.HOLESKY_V2_TESTNET,
+    contractName: 'DaikoBridge',
 }
 
 // const fujiContract: OmniPointHardhat = {
@@ -16,9 +16,9 @@ const sepoliaContract: OmniPointHardhat = {
 //     eid: EndpointId.AMOY_V2_TESTNET,
 //     contractName: 'MyOApp',
 // }
-const holeskyContract: OmniPointHardhat = {
-    eid: EndpointId.HOLESKY_V2_TESTNET,
-    contractName: 'MyOApp',
+const taikoTestnetContract: OmniPointHardhat = {
+    eid: EndpointId.TAIKO_V2_TESTNET,
+    contractName: 'DaikoBridge',
 }
 
 const config: OAppOmniGraphHardhat = {
@@ -27,14 +27,17 @@ const config: OAppOmniGraphHardhat = {
         //     contract: fujiContract,
         // },
         {
-            contract: sepoliaContract,
-        },
-        {
             contract: holeskyContract,
         },
         // {
+        //     contract: holeskyContract,
+        // },
+        // {
         //     contract: amoyContract,
         // },
+        {
+            contract: taikoTestnetContract,
+        },
     ],
     connections: [
         // {
@@ -90,12 +93,12 @@ const config: OAppOmniGraphHardhat = {
         //     to: fujiContract,
         // },
         {
-            from: sepoliaContract,
-            to: holeskyContract,
+            from: holeskyContract,
+            to: taikoTestnetContract,
         },
         {
-            from: holeskyContract,
-            to: sepoliaContract,
+            from: taikoTestnetContract,
+            to: holeskyContract,
         },
     ],
 }
