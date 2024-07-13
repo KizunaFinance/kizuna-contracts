@@ -2,12 +2,14 @@
 
 pragma solidity ^0.8.22;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
-import { MessagingReceipt, MessagingParams } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {OApp, MessagingFee, Origin} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
+import {MessagingReceipt, MessagingParams} from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 
 interface iStaking {
     function transferLiquidity(address _to, uint256 _amount) external;
+
+    function fund() external payable returns (bool success);
 }
 
 contract DaikoBridge is OApp {
@@ -16,7 +18,10 @@ contract DaikoBridge is OApp {
 
     iStaking public ethVault;
 
-    constructor(address _endpoint, address _delegate) OApp(_endpoint, _delegate) Ownable(_delegate) {}
+    constructor(
+        address _endpoint,
+        address _delegate
+    ) OApp(_endpoint, _delegate) Ownable(_delegate) {}
 
     /**
      * @notice Sends a message from the source chain to a destination chain.
@@ -34,10 +39,17 @@ contract DaikoBridge is OApp {
     ) external payable returns (MessagingReceipt memory receipt) {
         uint256 amount = msg.value - fee;
         bytes memory _payload = abi.encode(amount, recvAddress);
-        receipt = endpoint.send{ value: fee }( // solhint-disable-next-line check-send-result
-            MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
+        receipt = endpoint.send{value: fee}( // solhint-disable-next-line check-send-result
+            MessagingParams(
+                _dstEid,
+                _getPeerOrRevert(_dstEid),
+                _payload,
+                _options,
+                false
+            ),
             payable(msg.sender)
         );
+        ethVault.fund{value: amount}();
     }
 
     function setEthVaultAddress(address _ethVaultAddress) external onlyOwner {

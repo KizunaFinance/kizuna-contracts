@@ -8,7 +8,8 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract Staking is AccessControl, ReentrancyGuard {
-    bytes32 public constant LIQUIDITY_MANAGER_ROLE = keccak256("LIQUIDITY_MANAGER_ROLE");
+    bytes32 public constant LIQUIDITY_MANAGER_ROLE =
+        keccak256("LIQUIDITY_MANAGER_ROLE");
 
     mapping(address => uint256) public stakedBalances;
     mapping(address => uint256) public unstakeTimestamps;
@@ -25,7 +26,9 @@ contract Staking is AccessControl, ReentrancyGuard {
         _grantRole(LIQUIDITY_MANAGER_ROLE, msg.sender);
     }
 
-    function changeLiquidityManager(address newManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function changeLiquidityManager(
+        address newManager
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _revokeRole(LIQUIDITY_MANAGER_ROLE, msg.sender);
         _grantRole(LIQUIDITY_MANAGER_ROLE, newManager);
     }
@@ -38,7 +41,10 @@ contract Staking is AccessControl, ReentrancyGuard {
     }
 
     function unstake(uint256 _amount) external nonReentrant {
-        require(stakedBalances[msg.sender] >= _amount, "Insufficient staked balance");
+        require(
+            stakedBalances[msg.sender] >= _amount,
+            "Insufficient staked balance"
+        );
 
         unstakeTimestamps[msg.sender] = block.timestamp;
         stakedBalances[msg.sender] -= _amount;
@@ -48,18 +54,37 @@ contract Staking is AccessControl, ReentrancyGuard {
     }
 
     function withdraw(uint256 _amount) external nonReentrant {
-        require(block.timestamp >= unstakeTimestamps[msg.sender] + COOLDOWN_PERIOD, "Cooldown period not yet passed");
+        require(
+            block.timestamp >= unstakeTimestamps[msg.sender] + COOLDOWN_PERIOD,
+            "Cooldown period not yet passed"
+        );
         payable(msg.sender).transfer(_amount);
 
         // Emit Withdrawn event
         emit Withdrawn(msg.sender, _amount);
     }
 
-    function transferLiquidity(address _to, uint256 _amount) external nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) {
-        require(address(this).balance >= _amount, "Insufficient contract balance");
+    function transferLiquidity(
+        address _to,
+        uint256 _amount
+    ) external nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) {
+        require(
+            address(this).balance >= _amount,
+            "Insufficient contract balance"
+        );
         payable(_to).transfer(_amount);
 
         // Emit LiquidityTransferred event
         emit LiquidityTransferred(_to, _amount);
+    }
+
+    function fund()
+        public
+        payable
+        nonReentrant
+        onlyRole(LIQUIDITY_MANAGER_ROLE)
+        returns (bool success)
+    {
+        return true;
     }
 }
