@@ -4,6 +4,7 @@ import { Contract, ContractFactory } from 'ethers'
 import { deployments, ethers } from 'hardhat'
 
 import { Options } from '@layerzerolabs/lz-v2-utilities'
+import { time, loadFixture, takeSnapshot } from '@nomicfoundation/hardhat-network-helpers'
 
 describe('MyOApp Test', function () {
     // Constant representing a mock Endpoint ID for testing purposes
@@ -19,11 +20,18 @@ describe('MyOApp Test', function () {
     let myOAppB: Contract
     let mockEndpointV2A: Contract
     let mockEndpointV2B: Contract
+    let Staking: ContractFactory
+    let stakingA: Contract
+    let stakingB: Contract
+    let userA: SignerWithAddress
+    let userB: SignerWithAddress
+    let userC: SignerWithAddress
 
     // Before hook for setup that runs once before all tests in the block
     before(async function () {
         // Contract factory for our tested contract
-        MyOApp = await ethers.getContractFactory('MyOApp')
+        MyOApp = await ethers.getContractFactory('DaikoBridge')
+        Staking = await ethers.getContractFactory('Staking')
 
         // Fetching the first three signers (accounts) from Hardhat's local Ethereum network
         const signers = await ethers.getSigners()
@@ -31,6 +39,9 @@ describe('MyOApp Test', function () {
         ownerA = signers.at(0)!
         ownerB = signers.at(1)!
         endpointOwner = signers.at(2)!
+        userA = signers.at(3)!
+        userB = signers.at(4)!
+        userC = signers.at(5)!
 
         // The EndpointV2Mock contract comes from @layerzerolabs/test-devtools-evm-hardhat package
         // and its artifacts are connected as external artifacts to this project
@@ -49,9 +60,11 @@ describe('MyOApp Test', function () {
         mockEndpointV2A = await EndpointV2Mock.deploy(eidA)
         mockEndpointV2B = await EndpointV2Mock.deploy(eidB)
 
+        stakingA = await Staking.deploy(30000)
+        stakingB = await Staking.deploy(30000)
         // Deploying two instances of MyOApp contract and linking them to the mock LZEndpoint
-        myOAppA = await MyOApp.deploy(mockEndpointV2A.address, ownerA.address)
-        myOAppB = await MyOApp.deploy(mockEndpointV2B.address, ownerB.address)
+        myOAppA = await MyOApp.deploy(mockEndpointV2A.address, ownerA.address, 300, stakingA.address)
+        myOAppB = await MyOApp.deploy(mockEndpointV2B.address, ownerB.address, 300, stakingB.address)
 
         // Setting destination endpoints in the LZEndpoint mock for each MyOApp instance
         await mockEndpointV2A.setDestLzEndpoint(myOAppB.address, mockEndpointV2B.address)
@@ -66,10 +79,77 @@ describe('MyOApp Test', function () {
             value: ethers.utils.parseEther('1'),
         })
         console.log('after send')
+        await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
+        await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
+        await stakingA.changeLiquidityManager(myOAppA.address)
+        await stakingB.changeLiquidityManager(myOAppB.address)
     })
 
     // A test case to verify message sending functionality
-    it('should send a message to each destination OApp', async function () {
+
+    it('testing unstake and withdraw', async function () {
+        // await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
+        const stakeTime = await time.latest()
+        await stakingA.connect(userA).unstake(ethers.utils.parseEther('1'))
+
+        // await expect(stakingA.connect(userA).unstake()).to.revert;
+        let revertFlag = false
+        try {
+            await stakingA.connect(userA).withdraw(ethers.utils.parseEther('1'))
+            expect(false).eq(true)
+        } catch (err) {
+            console.log(err)
+            expect(true).eq(true)
+        }
+
+        await time.increaseTo(stakeTime + 3600 * 24 * 7)
+        try {
+            let before = await ethers.provider.getBalance(userA.address)
+            let tr = await stakingA.connect(userA).withdraw(ethers.utils.parseEther('1'))
+            let receipt = await tr.wait()
+            let gasUsed = BigInt(receipt.cumulativeGasUsed) * BigInt(receipt.effectiveGasPrice)
+            let after = await ethers.provider.getBalance(userA.address)
+            let unstake = after.sub(before).add(gasUsed)
+            console.log('unstake: ', unstake.toString())
+            expect(unstake.toString()).eq(ethers.utils.parseEther('1').toString())
+        } catch (err) {
+            console.log(err)
+            expect(false).eq(true)
+        }
+    })
+    it('testing bridge send', async function () {
+        // Assert initial state of data in both MyOApp instances
+        // expect(await myOAppA.data()).to.equal('Nothing received yet.')
+        // expect(await myOAppB.data()).to.equal('Nothing received yet.')
+        const options = Options.newOptions().addExecutorLzReceiveOption(200000, 0).toHex().toString()
+
+        // Define native fee and quote for the message send operation
+        let nativeFee = 0
+        ;[nativeFee] = await myOAppA.quote(eidB, options, false)
+        console.log('nativeFee:', nativeFee)
+
+        // uint32 _dstEid,
+        // uint256 fee,
+        // string memory _message,
+        // bytes calldata _options
+
+        console.log('value: ', ethers.utils.parseEther('1').add(nativeFee).toString())
+        const startBalanceB = await ethers.provider.getBalance(myOAppA.address)
+
+        // Execute send operation from myOAppA
+        await myOAppA.send(eidB, nativeFee, ownerB.address, options, {
+            value: ethers.utils.parseEther('1').add(nativeFee).toString(),
+        })
+
+        const finalBalanceB = await ethers.provider.getBalance(myOAppA.address)
+        console.log(startBalanceB.sub(finalBalanceB).toString())
+
+        // Assert the resulting state of data in both MyOApp instances
+        // expect(await myOAppA.data()).to.equal('Nothing received yet.')
+        // expect(await myOAppB.data()).to.equal('Test message.')
+    })
+
+    it('testing bridge staking reward', async function () {
         // Assert initial state of data in both MyOApp instances
         // expect(await myOAppA.data()).to.equal('Nothing received yet.')
         // expect(await myOAppB.data()).to.equal('Nothing received yet.')
@@ -90,11 +170,50 @@ describe('MyOApp Test', function () {
 
         // Execute send operation from myOAppA
         await myOAppA.send(eidB, nativeFee, ownerB.address, options, {
-            value: ethers.utils.parseUnits('1', 'wei').add(nativeFee).toString(),
+            value: ethers.utils.parseEther('1').add(nativeFee).toString(),
         })
 
         const finalBalanceB = await ethers.provider.getBalance(myOAppA.address)
         console.log(startBalanceB.sub(finalBalanceB).toString())
+
+        await stakingA.updateReward()
+        await stakingA.connect(userA).updateRewardForUser()
+
+        let before = await ethers.provider.getBalance(userA.address)
+        let tr = await stakingA.connect(userA).getRewardForUser()
+        let receipt = await tr.wait()
+        let gasUsed = BigInt(receipt.cumulativeGasUsed) * BigInt(receipt.effectiveGasPrice)
+        let after = await ethers.provider.getBalance(userA.address)
+        let reward = after.sub(before).add(gasUsed)
+        console.log('before after', before.toString(), after.toString(), gasUsed.toString())
+        expect(reward.toString()).eq('2100000000000000')
+
+        await stakingA.connect(userC).stake({ value: ethers.utils.parseEther('3') })
+
+        await myOAppA.send(eidB, nativeFee, ownerB.address, options, {
+            value: ethers.utils.parseEther('1').add(nativeFee).toString(),
+        })
+
+        await stakingA.updateReward()
+        await stakingA.connect(userA).updateRewardForUser()
+
+        before = await ethers.provider.getBalance(userA.address)
+        tr = await stakingA.connect(userA).getRewardForUser()
+        receipt = await tr.wait()
+        gasUsed = BigInt(receipt.cumulativeGasUsed) * BigInt(receipt.effectiveGasPrice)
+        after = await ethers.provider.getBalance(userA.address)
+        reward = after.sub(before).add(gasUsed)
+        expect(reward.toString()).eq('525000000000000')
+
+        await stakingA.connect(userC).updateRewardForUser()
+        before = await ethers.provider.getBalance(userC.address)
+        tr = await stakingA.connect(userC).getRewardForUser()
+        receipt = await tr.wait()
+        gasUsed = BigInt(receipt.cumulativeGasUsed) * BigInt(receipt.effectiveGasPrice)
+        after = await ethers.provider.getBalance(userC.address)
+        reward = after.sub(before).add(gasUsed)
+        expect(reward.toString()).eq('1575000000000000')
+        console.log('rewardC: ', reward)
 
         // Assert the resulting state of data in both MyOApp instances
         // expect(await myOAppA.data()).to.equal('Nothing received yet.')

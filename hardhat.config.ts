@@ -12,6 +12,7 @@ import '@layerzerolabs/toolbox-hardhat'
 import { HardhatUserConfig, HttpNetworkAccountsUserConfig } from 'hardhat/types'
 
 import { EndpointId } from '@layerzerolabs/lz-definitions'
+import '@nomicfoundation/hardhat-verify'
 
 // Set your preferred authentication method
 //
@@ -80,6 +81,57 @@ const config: HardhatUserConfig = {
             default: 0, // wallet address of index[0], of the mnemonic in .env
         },
     },
+    // sourcify: {
+    //     enabled: true,
+    // },
+    verify: {
+        etherscan: {
+            // apiKey: 'WGAQCNUDQCFRQJH9D72G94BZ83STGRJCX6',
+            // apiKey: 'GCCG77JI6JW3FV93UKE8WQPRXA18T5TN4B',
+
+            //@ts-ignore
+            // holesky: {
+            apiKey: {
+                holesky: 'GCCG77JI6JW3FV93UKE8WQPRXA18T5TN4B',
+                hekla: '2CC5WX8SERQ8VJ6NFFSJSIX53QX4626RCR',
+            },
+            customChains: [
+                {
+                    network: 'hekla',
+                    chainId: 167009,
+                    urls: {
+                        apiURL: 'https://api-hekla.taikoscan.io/api',
+                        browserURL: 'https://hekla.taikoscan.network/',
+                    },
+                },
+            ],
+            // },
+        },
+    },
+    etherscan: {
+        // apiKey: 'WGAQCNUDQCFRQJH9D72G94BZ83STGRJCX6',
+        // apiKey: 'GCCG77JI6JW3FV93UKE8WQPRXA18T5TN4B',
+
+        //@ts-ignore
+        apiKey: {
+            holesky: 'GCCG77JI6JW3FV93UKE8WQPRXA18T5TN4B',
+            hekla: '2CC5WX8SERQ8VJ6NFFSJSIX53QX4626RCR',
+        },
+        customChains: [
+            {
+                network: 'hekla',
+                chainId: 167009,
+                urls: {
+                    apiURL: 'https://api-hekla.taikoscan.io/api',
+                    browserURL: 'https://hekla.taikoscan.network/',
+                },
+            },
+        ],
+    },
+
+    // bscscan: {
+    //     apiKey: 'S1PFEYDQ5SXJSKTB2UE6YXAKF2XDV2Y4EV',
+    // },
 }
 
 export default config
