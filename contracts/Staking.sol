@@ -46,7 +46,6 @@ contract Staking is AccessControl, ReentrancyGuard {
     function stake() external payable nonReentrant {
         require(msg.value > 0, "Cannot stake 0 ETH");
 
-        updateRewardForUser();
         updateReward();
 
         uint256 curTotalStaked = totalStaked + msg.value;
@@ -60,10 +59,8 @@ contract Staking is AccessControl, ReentrancyGuard {
     function unstake(uint256 _amount) external nonReentrant {
         require(stakedBalances[msg.sender] >= _amount, "Insufficient staked balance");
 
-        updateRewardForUser();
         updateReward();
 
-        console.log("totalStaked:", totalStaked);
         unstakeTimestamps[msg.sender] = block.timestamp;
         stakedBalances[msg.sender] -= _amount;
         totalStaked -= _amount;
@@ -104,15 +101,14 @@ contract Staking is AccessControl, ReentrancyGuard {
 
     function updateReward() public {
         if (totalStaked == 0) return;
-        weightedReward += (totalReward * MAX_TOTAL_WEIGHT) / totalStaked;
-        totalReward = 0;
-    }
 
-    function updateRewardForUser() public {
         address user = msg.sender;
         uint256 currentUserReward = (weightedReward - userCollectedReward[user]) * stakedBalances[user];
         userReward[user] += currentUserReward;
         userCollectedReward[user] = weightedReward;
+
+        weightedReward += (totalReward * MAX_TOTAL_WEIGHT) / totalStaked;
+        totalReward = 0;
     }
 
     function checkRewardForUser(address user) public view returns (uint256) {
@@ -122,7 +118,6 @@ contract Staking is AccessControl, ReentrancyGuard {
     }
 
     function getRewardForUser() external nonReentrant {
-        updateRewardForUser();
         updateReward();
 
         address user = msg.sender;

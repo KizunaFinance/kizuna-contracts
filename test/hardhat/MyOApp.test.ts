@@ -177,7 +177,6 @@ describe('MyOApp Test', function () {
         console.log(startBalanceB.sub(finalBalanceB).toString())
 
         await stakingA.updateReward()
-        await stakingA.connect(userA).updateRewardForUser()
 
         let before = await ethers.provider.getBalance(userA.address)
         let tr = await stakingA.connect(userA).getRewardForUser()
@@ -195,7 +194,6 @@ describe('MyOApp Test', function () {
         })
 
         await stakingA.updateReward()
-        await stakingA.connect(userA).updateRewardForUser()
 
         before = await ethers.provider.getBalance(userA.address)
         tr = await stakingA.connect(userA).getRewardForUser()
@@ -205,7 +203,6 @@ describe('MyOApp Test', function () {
         reward = after.sub(before).add(gasUsed)
         expect(reward.toString()).eq('525000000000000')
 
-        await stakingA.connect(userC).updateRewardForUser()
         before = await ethers.provider.getBalance(userC.address)
         tr = await stakingA.connect(userC).getRewardForUser()
         receipt = await tr.wait()
