@@ -6,8 +6,9 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { MessagingReceipt, MessagingParams } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 import "./interface/IStaking.sol";
+import "hardhat/console.sol";
 
-contract DaikoBridge is OApp {
+contract StakingBridge is OApp {
     // emit AddedNativeTokens(address owner, uint256 amt);
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
 
@@ -27,30 +28,30 @@ contract DaikoBridge is OApp {
     /**
      * @notice Sends a message from the source chain to a destination chain.
      * @param _dstEid The endpoint ID of the destination chain.
-     * @param fee The message string to be sent.
+     * @param stakingAmount The message string to be sent.
      * @param _options Additional options for message execution.
      * @dev Encodes the message as bytes and sends it using the `_lzSend` internal function.
      * @return receipt A `MessagingReceipt` struct containing details of the message sent.
      */
     function send(
         uint32 _dstEid,
-        uint256 fee,
+        uint256 stakingAmount,
         address recvAddress,
         bytes calldata _options
     ) external payable returns (MessagingReceipt memory receipt) {
-        uint256 amount = msg.value - fee;
-        require(amount > 100000, "Not enough amount");
-        uint256 bridgeFee = (amount * bridgeFeesPercent) / 100000;
-        amount -= bridgeFee;
+        require(msg.sender == address(ethVault), "only callable by ethVault");
+        uint256 bridgeFee = (stakingAmount * bridgeFeesPercent) / 100000;
+        stakingAmount -= bridgeFee;
 
         ethVault.addBridgeFee{ value: bridgeFee }();
 
-        bytes memory _payload = abi.encode(amount, recvAddress);
-        receipt = endpoint.send{ value: fee }( // solhint-disable-next-line check-send-result
-            MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
+        bytes memory _payload = abi.encode(stakingAmount, recvAddress);
+        bytes32 peer = _getPeerOrRevert(_dstEid);
+        console.log("msg value:", msg.value);
+        receipt = endpoint.send{ value: msg.value }( // solhint-disable-next-line check-send-result
+            MessagingParams(_dstEid, peer, _payload, _options, false),
             payable(msg.sender)
         );
-        ethVault.fund{ value: amount }();
     }
 
     /**
@@ -88,12 +89,10 @@ contract DaikoBridge is OApp {
         address /*_executor*/,
         bytes calldata /*_extraData*/
     ) internal override {
+        console.log("printing recieve");
         uint256 recvAmount;
         address recvAddress;
         (recvAmount, recvAddress) = abi.decode(payload, (uint256, address));
-
-        // (bool success, ) = recvAddress.call{ value: recvAmount }("");
-        // require(success, "Transfer failed");
 
         ethVault.transferLiquidity(recvAddress, recvAmount);
 

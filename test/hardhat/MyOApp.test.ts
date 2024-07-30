@@ -26,12 +26,17 @@ describe('MyOApp Test', function () {
     let userA: SignerWithAddress
     let userB: SignerWithAddress
     let userC: SignerWithAddress
+    let deployer: SignerWithAddress
+    let stakingBridgeA: Contract
+    let stakingBridgeB: Contract
+    let StakingBridge: ContractFactory
 
     // Before hook for setup that runs once before all tests in the block
     before(async function () {
         // Contract factory for our tested contract
         MyOApp = await ethers.getContractFactory('DaikoBridge')
         Staking = await ethers.getContractFactory('Staking')
+        StakingBridge = await ethers.getContractFactory('StakingBridge')
 
         // Fetching the first three signers (accounts) from Hardhat's local Ethereum network
         const signers = await ethers.getSigners()
@@ -42,6 +47,7 @@ describe('MyOApp Test', function () {
         userA = signers.at(3)!
         userB = signers.at(4)!
         userC = signers.at(5)!
+        deployer = signers.at(0)!
 
         // The EndpointV2Mock contract comes from @layerzerolabs/test-devtools-evm-hardhat package
         // and its artifacts are connected as external artifacts to this project
@@ -81,8 +87,23 @@ describe('MyOApp Test', function () {
         console.log('after send')
         await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
         await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
-        await stakingA.changeLiquidityManager(myOAppA.address)
-        await stakingB.changeLiquidityManager(myOAppB.address)
+        await stakingA.setLiquidityManager(myOAppA.address)
+        await stakingB.setLiquidityManager(myOAppB.address)
+
+        // stakingBridgeA = await StakingBridge.deploy();
+        stakingBridgeA = await StakingBridge.deploy(mockEndpointV2A.address, ownerA.address, 300, stakingA.address)
+        stakingBridgeB = await StakingBridge.deploy(mockEndpointV2B.address, ownerB.address, 300, stakingB.address)
+
+        await stakingA.setStakingBridge(stakingBridgeA.address)
+        await stakingB.setStakingBridge(stakingBridgeB.address)
+        await stakingA.setLiquidityManager(stakingBridgeA.address)
+        await stakingB.setLiquidityManager(stakingBridgeB.address)
+
+        await mockEndpointV2A.setDestLzEndpoint(stakingBridgeB.address, mockEndpointV2B.address)
+        await mockEndpointV2B.setDestLzEndpoint(stakingBridgeA.address, mockEndpointV2A.address)
+
+        await stakingBridgeA.connect(ownerA).setPeer(eidB, ethers.utils.zeroPad(stakingBridgeB.address, 32))
+        await stakingBridgeB.connect(ownerB).setPeer(eidA, ethers.utils.zeroPad(stakingBridgeA.address, 32))
     })
 
     // A test case to verify message sending functionality
@@ -95,7 +116,7 @@ describe('MyOApp Test', function () {
         // await expect(stakingA.connect(userA).unstake()).to.revert;
         let revertFlag = false
         try {
-            await stakingA.connect(userA).withdraw(ethers.utils.parseEther('1'))
+            await stakingA.connect(userA).withdraw(0)
             expect(false).eq(true)
         } catch (err) {
             console.log(err)
@@ -105,7 +126,7 @@ describe('MyOApp Test', function () {
         await time.increaseTo(stakeTime + 3600 * 24 * 7)
         try {
             let before = await ethers.provider.getBalance(userA.address)
-            let tr = await stakingA.connect(userA).withdraw(ethers.utils.parseEther('1'))
+            let tr = await stakingA.connect(userA).withdraw(0)
             let receipt = await tr.wait()
             let gasUsed = BigInt(receipt.cumulativeGasUsed) * BigInt(receipt.effectiveGasPrice)
             let after = await ethers.provider.getBalance(userA.address)
@@ -215,5 +236,45 @@ describe('MyOApp Test', function () {
         // Assert the resulting state of data in both MyOApp instances
         // expect(await myOAppA.data()).to.equal('Nothing received yet.')
         // expect(await myOAppB.data()).to.equal('Test message.')
+    })
+
+    it('testing withdrawByBridge', async function () {
+        // Assert initial state of data in both MyOApp instances
+        // expect(await myOAppA.data()).to.equal('Nothing received yet.')
+        // expect(await myOAppB.data()).to.equal('Nothing received yet.')
+        const options = Options.newOptions().addExecutorLzReceiveOption(200000, 0).toHex().toString()
+
+        await stakingB.connect(userB).unstake(ethers.utils.parseEther('1'))
+        const unstakeTime = await time.latest()
+
+        await stakingB.transferLiquidity(deployer.address, ethers.utils.parseEther('1'))
+
+        await time.increaseTo(unstakeTime + 60 * 60 * 24 * 7)
+
+        try {
+            console.log('before normal withdraw')
+            await stakingB.connect(userB).withdraw(0)
+            console.log('after normal withdraw')
+            expect(false).eq(true)
+        } catch (err) {
+            console.log(err)
+            expect(true).eq(true)
+        }
+
+        console.log('calling withdraw by bridge')
+
+        // Define native fee and quote for the message send operation
+        let nativeFee = 0
+        ;[nativeFee] = await myOAppA.quote(eidB, options, false)
+        console.log('nativeFee:', nativeFee)
+
+        // uint256 recordID,
+        // uint32 _dstEid,
+        // address recvAddress,
+        // bytes calldata _options
+        await stakingB.connect(userB).withdrawByBridge(0, eidA, userB.address, options, { value: nativeFee })
+        // await stakingBridgeB
+        //     .connect(userB)
+        //     .send(eidA, ethers.utils.parseEther('0.5'), userB.address, options, { value: nativeFee })
     })
 })
