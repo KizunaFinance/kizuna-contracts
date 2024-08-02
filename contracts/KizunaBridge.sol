@@ -6,10 +6,12 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { MessagingReceipt, MessagingParams } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 import "./interface/IStaking.sol";
+import "hardhat/console.sol";
 
-contract DaikoBridge is OApp {
+contract KizunaBridge is OApp {
     // emit AddedNativeTokens(address owner, uint256 amt);
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
+    event SetEthVaultAddress(address ethVault);
 
     IStaking public ethVault;
     uint256 bridgeFeesPercent;
@@ -22,6 +24,11 @@ contract DaikoBridge is OApp {
     ) OApp(_endpoint, _delegate) Ownable(_delegate) {
         bridgeFeesPercent = _feesPercent;
         ethVault = _ethVault;
+    }
+
+    function setEthVaultAddress(address _ethVault) external onlyOwner {
+        ethVault = IStaking(_ethVault);
+        emit SetEthVaultAddress(_ethVault);
     }
 
     /**
@@ -43,6 +50,7 @@ contract DaikoBridge is OApp {
         uint256 bridgeFee = (amount * bridgeFeesPercent) / 100000;
         amount -= bridgeFee;
 
+        console.log("bridgeFee:", bridgeFee);
         ethVault.addBridgeFee{ value: bridgeFee }();
 
         bytes memory _payload = abi.encode(amount, recvAddress);

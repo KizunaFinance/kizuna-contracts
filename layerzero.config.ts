@@ -4,7 +4,7 @@ import type { OAppOmniGraphHardhat, OmniPointHardhat } from '@layerzerolabs/tool
 
 const holeskyContract: OmniPointHardhat = {
     eid: EndpointId.HOLESKY_V2_TESTNET,
-    contractName: 'DaikoBridge',
+    contractName: 'KizunaBridge',
 }
 
 // const fujiContract: OmniPointHardhat = {
@@ -18,7 +18,7 @@ const holeskyContract: OmniPointHardhat = {
 // }
 const taikoTestnetContract: OmniPointHardhat = {
     eid: EndpointId.TAIKO_V2_TESTNET,
-    contractName: 'DaikoBridge',
+    contractName: 'KizunaBridge',
 }
 
 const config: OAppOmniGraphHardhat = {

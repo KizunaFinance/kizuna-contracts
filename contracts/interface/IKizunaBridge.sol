@@ -4,7 +4,7 @@ pragma solidity ^0.8.22;
 import { MessagingFee } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { MessagingReceipt } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 
-interface IDaikoBridge {
+interface IKizunaBridge {
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
 
     function ethVault() external view returns (address);

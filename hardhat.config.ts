@@ -13,7 +13,10 @@ import { HardhatUserConfig, HttpNetworkAccountsUserConfig } from 'hardhat/types'
 
 import { EndpointId } from '@layerzerolabs/lz-definitions'
 import '@nomicfoundation/hardhat-verify'
-import { time, loadFixture, takeSnapshot } from "@nomicfoundation/hardhat-network-helpers";
+import { time, loadFixture, takeSnapshot } from '@nomicfoundation/hardhat-network-helpers'
+import '@nomiclabs/hardhat-waffle'
+
+// import '@nomicfoundation/hardhat-chai-matchers'
 
 // Set your preferred authentication method
 //
@@ -58,7 +61,7 @@ const config: HardhatUserConfig = {
         // },
         holesky: {
             eid: EndpointId.HOLESKY_V2_TESTNET,
-            url: 'https://1rpc.io/holesky',
+            url: 'https://ethereum-holesky.blockpi.network/v1/rpc/public',
             accounts,
         },
         // fuji: {

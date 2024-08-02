@@ -23,18 +23,10 @@ contract Staking is AccessControl, ReentrancyGuard {
     uint256 public LAST_CLAIM_ID;
     uint256 public constant COOLDOWN_PERIOD = 7 days;
 
-    uint256 weightedReward;
-    uint256 totalStaked;
     uint256 adminFeePercent;
     uint256 adminFeeAmount;
-    uint256 totalReward;
 
     IStakingBridge StakingBridge;
-
-    uint256 public constant MAX_TOTAL_WEIGHT = 1e36;
-
-    mapping(address => uint256) userCollectedReward;
-    mapping(address => uint256) userReward;
 
     // Define events
     event Staked(address indexed user, uint256 amount);
@@ -63,11 +55,7 @@ contract Staking is AccessControl, ReentrancyGuard {
     function stake() external payable nonReentrant {
         require(msg.value > 0, "Cannot stake 0 ETH");
 
-        updateReward();
-
-        uint256 curTotalStaked = totalStaked + msg.value;
         stakedBalances[msg.sender] += msg.value;
-        totalStaked = curTotalStaked;
 
         // Emit Staked event
         emit Staked(msg.sender, msg.value);
@@ -76,11 +64,10 @@ contract Staking is AccessControl, ReentrancyGuard {
     function unstake(uint256 _amount) external nonReentrant {
         require(stakedBalances[msg.sender] >= _amount, "Insufficient staked balance");
 
-        updateReward();
-
         stakedBalances[msg.sender] -= _amount;
-        totalStaked -= _amount;
+
         uint256 lastClaimID = LAST_CLAIM_ID;
+
         withdrawClaims[lastClaimID] = WithdrawClaim(msg.sender, block.timestamp, _amount);
         LAST_CLAIM_ID = lastClaimID + 1;
 
@@ -94,6 +81,8 @@ contract Staking is AccessControl, ReentrancyGuard {
             "Cooldown period not yet passed"
         );
         require(withdrawClaims[recordID].withdrawer == msg.sender, "not withdrawer");
+        require(address(this).balance >= withdrawClaims[recordID].amount, "not enough for direct withdraw");
+
         payable(msg.sender).transfer(withdrawClaims[recordID].amount);
 
         // Emit Withdrawn event
@@ -108,19 +97,15 @@ contract Staking is AccessControl, ReentrancyGuard {
         address recvAddress,
         bytes calldata _options
     ) external payable nonReentrant {
-        console.log("withdraw claims:", withdrawClaims[recordID].timestamp);
-
         require(
             block.timestamp >= withdrawClaims[recordID].timestamp + COOLDOWN_PERIOD,
             "Cooldown period not yet passed"
         );
-        require(withdrawClaims[recordID].withdrawer == msg.sender, "not withdrawer");
-        require(address(this).balance < withdrawClaims[recordID].amount, "enough for direct withdraw");
-        // payable(msg.sender).transfer(withdrawClaims[recordID].amount);
 
-        console.log("staking bridge:", address(StakingBridge));
-        address ethVault = StakingBridge.ethVault();
-        console.log("ethVault:", ethVault);
+        require(withdrawClaims[recordID].withdrawer == msg.sender, "not withdrawer");
+
+        require(address(this).balance < withdrawClaims[recordID].amount, "enough for direct withdraw");
+
         StakingBridge.send{ value: msg.value }(_dstEid, withdrawClaims[recordID].amount, recvAddress, _options);
 
         // Emit Withdrawn event
@@ -130,13 +115,7 @@ contract Staking is AccessControl, ReentrancyGuard {
     }
 
     function addBridgeFee() external payable onlyRole(LIQUIDITY_MANAGER_ROLE) {
-        uint256 currentReward = msg.value;
-
-        uint256 adminFees = (currentReward * adminFeePercent) / 100000;
-        adminFeeAmount += adminFees;
-        currentReward -= adminFees;
-
-        totalReward += currentReward;
+        adminFeeAmount += msg.value;
     }
 
     function transferLiquidity(address _to, uint256 _amount) external nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) {
@@ -149,34 +128,5 @@ contract Staking is AccessControl, ReentrancyGuard {
 
     function fund() public payable nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) returns (bool success) {
         return true;
-    }
-
-    function updateReward() public {
-        if (totalStaked == 0) return;
-
-        address user = msg.sender;
-        uint256 currentUserReward = (weightedReward - userCollectedReward[user]) * stakedBalances[user];
-        userReward[user] += currentUserReward;
-        userCollectedReward[user] = weightedReward;
-
-        weightedReward += (totalReward * MAX_TOTAL_WEIGHT) / totalStaked;
-        totalReward = 0;
-    }
-
-    function checkRewardForUser(address user) public view returns (uint256) {
-        uint256 currentUserReward = userReward[user];
-        currentUserReward /= MAX_TOTAL_WEIGHT;
-        return currentUserReward;
-    }
-
-    function getRewardForUser() external nonReentrant {
-        updateReward();
-
-        address user = msg.sender;
-        uint256 currentUserReward = userReward[user];
-        if (currentUserReward == 0) return;
-        currentUserReward /= MAX_TOTAL_WEIGHT;
-        payable(msg.sender).transfer(currentUserReward);
-        userReward[user] = 0;
     }
 }

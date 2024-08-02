@@ -11,6 +11,7 @@ import "hardhat/console.sol";
 contract StakingBridge is OApp {
     // emit AddedNativeTokens(address owner, uint256 amt);
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
+    event SetEthVaultAddress(address ethVault);
 
     IStaking public ethVault;
     uint256 bridgeFeesPercent;
@@ -23,6 +24,11 @@ contract StakingBridge is OApp {
     ) OApp(_endpoint, _delegate) Ownable(_delegate) {
         bridgeFeesPercent = _feesPercent;
         ethVault = _ethVault;
+    }
+
+    function setEthVaultAddress(address _ethVault) external onlyOwner {
+        ethVault = IStaking(_ethVault);
+        emit SetEthVaultAddress(_ethVault);
     }
 
     /**
@@ -40,15 +46,13 @@ contract StakingBridge is OApp {
         bytes calldata _options
     ) external payable returns (MessagingReceipt memory receipt) {
         require(msg.sender == address(ethVault), "only callable by ethVault");
-        uint256 bridgeFee = (stakingAmount * bridgeFeesPercent) / 100000;
-        stakingAmount -= bridgeFee;
-
+        uint256 bridgeFee = (msg.value * bridgeFeesPercent) / 100000;
         ethVault.addBridgeFee{ value: bridgeFee }();
 
         bytes memory _payload = abi.encode(stakingAmount, recvAddress);
         bytes32 peer = _getPeerOrRevert(_dstEid);
-        console.log("msg value:", msg.value);
-        receipt = endpoint.send{ value: msg.value }( // solhint-disable-next-line check-send-result
+
+        receipt = endpoint.send{ value: msg.value - bridgeFee }( // solhint-disable-next-line check-send-result
             MessagingParams(_dstEid, peer, _payload, _options, false),
             payable(msg.sender)
         );
@@ -89,7 +93,6 @@ contract StakingBridge is OApp {
         address /*_executor*/,
         bytes calldata /*_extraData*/
     ) internal override {
-        console.log("printing recieve");
         uint256 recvAmount;
         address recvAddress;
         (recvAmount, recvAddress) = abi.decode(payload, (uint256, address));

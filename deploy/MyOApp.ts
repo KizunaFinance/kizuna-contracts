@@ -3,7 +3,7 @@ import assert from 'assert'
 import { type DeployFunction } from 'hardhat-deploy/types'
 
 // TODO declare your contract name here
-const contractName = 'DaikoBridge'
+const contractName = 'StakingBridge'
 
 const deploy: DeployFunction = async (hre) => {
     const { getNamedAccounts, deployments } = hre
@@ -32,6 +32,7 @@ const deploy: DeployFunction = async (hre) => {
     //     eid: EndpointId.AVALANCHE_V2_TESTNET
     //   }
     // }
+
     const endpointV2Deployment = await hre.deployments.get('EndpointV2')
 
     const { address } = await deploy(contractName, {
@@ -39,6 +40,8 @@ const deploy: DeployFunction = async (hre) => {
         args: [
             endpointV2Deployment.address, // LayerZero's EndpointV2 address
             deployer, // owner
+            300, // feesPercent
+            '0x0000000000000000000000000000000000000000', // ethVault
         ],
         log: true,
         skipIfAlreadyDeployed: false,
