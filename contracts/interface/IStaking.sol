@@ -33,7 +33,6 @@ interface IStaking {
         address recvAddress,
         bytes calldata _options
     ) external payable;
-    function addBridgeFee() external payable;
     function transferLiquidity(address _to, uint256 _amount) external;
     function fund() external payable returns (bool success);
     function updateReward() external;

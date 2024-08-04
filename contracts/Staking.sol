@@ -5,12 +5,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol"; // Import Pausable
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interface/IStakingBridge.sol";
-import "hardhat/console.sol";
 
-contract Staking is AccessControl, ReentrancyGuard {
+contract Staking is AccessControl, ReentrancyGuard, Pausable {
     bytes32 public constant LIQUIDITY_MANAGER_ROLE = keccak256("LIQUIDITY_MANAGER_ROLE");
 
     struct WithdrawClaim {
@@ -23,10 +22,7 @@ contract Staking is AccessControl, ReentrancyGuard {
     uint256 public LAST_CLAIM_ID;
     uint256 public constant COOLDOWN_PERIOD = 7 days;
 
-    uint256 adminFeePercent;
-    uint256 adminFeeAmount;
-
-    IStakingBridge StakingBridge;
+    IStakingBridge public StakingBridge; // Add public visibility
 
     // Define events
     event Staked(address indexed user, uint256 amount);
@@ -36,32 +32,32 @@ contract Staking is AccessControl, ReentrancyGuard {
     event SetStakingBridge(IStakingBridge _stakingBridge);
     event SetLiquidityManager(address _newManager);
 
-    constructor(uint256 _adminFeePercent) {
+    constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(LIQUIDITY_MANAGER_ROLE, msg.sender);
-        adminFeePercent = _adminFeePercent;
     }
 
     function setLiquidityManager(address _newManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_newManager != address(0), "Invalid address"); // Add validation
         _grantRole(LIQUIDITY_MANAGER_ROLE, _newManager);
         emit SetLiquidityManager(_newManager);
     }
 
     function setStakingBridge(IStakingBridge _stakingBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(address(_stakingBridge) != address(0), "Invalid address"); // Add validation
         StakingBridge = _stakingBridge;
         emit SetStakingBridge(_stakingBridge);
     }
 
-    function stake() external payable nonReentrant {
+    function stake() external payable nonReentrant whenNotPaused {
         require(msg.value > 0, "Cannot stake 0 ETH");
 
         stakedBalances[msg.sender] += msg.value;
 
-        // Emit Staked event
         emit Staked(msg.sender, msg.value);
     }
 
-    function unstake(uint256 _amount) external nonReentrant {
+    function unstake(uint256 _amount) external nonReentrant whenNotPaused {
         require(stakedBalances[msg.sender] >= _amount, "Insufficient staked balance");
 
         stakedBalances[msg.sender] -= _amount;
@@ -69,23 +65,21 @@ contract Staking is AccessControl, ReentrancyGuard {
         uint256 lastClaimID = LAST_CLAIM_ID;
 
         withdrawClaims[lastClaimID] = WithdrawClaim(msg.sender, block.timestamp, _amount);
-        LAST_CLAIM_ID = lastClaimID + 1;
+        ++LAST_CLAIM_ID;
 
-        // Emit Unstaked event
         emit Unstaked(msg.sender, _amount, block.timestamp);
     }
 
-    function withdraw(uint256 recordID) external nonReentrant {
+    function withdraw(uint256 recordID) external nonReentrant whenNotPaused {
         require(
             block.timestamp >= withdrawClaims[recordID].timestamp + COOLDOWN_PERIOD,
             "Cooldown period not yet passed"
         );
-        require(withdrawClaims[recordID].withdrawer == msg.sender, "not withdrawer");
-        require(address(this).balance >= withdrawClaims[recordID].amount, "not enough for direct withdraw");
+        require(withdrawClaims[recordID].withdrawer == msg.sender, "Not withdrawer");
+        require(address(this).balance >= withdrawClaims[recordID].amount, "Not enough balance for withdrawal");
 
         payable(msg.sender).transfer(withdrawClaims[recordID].amount);
 
-        // Emit Withdrawn event
         emit Withdrawn(msg.sender, withdrawClaims[recordID].amount);
 
         delete withdrawClaims[recordID];
@@ -96,37 +90,32 @@ contract Staking is AccessControl, ReentrancyGuard {
         uint32 _dstEid,
         address recvAddress,
         bytes calldata _options
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         require(
             block.timestamp >= withdrawClaims[recordID].timestamp + COOLDOWN_PERIOD,
             "Cooldown period not yet passed"
         );
 
-        require(withdrawClaims[recordID].withdrawer == msg.sender, "not withdrawer");
-
-        require(address(this).balance < withdrawClaims[recordID].amount, "enough for direct withdraw");
+        require(withdrawClaims[recordID].withdrawer == msg.sender, "Not withdrawer");
 
         StakingBridge.send{ value: msg.value }(_dstEid, withdrawClaims[recordID].amount, recvAddress, _options);
 
-        // Emit Withdrawn event
         emit Withdrawn(msg.sender, withdrawClaims[recordID].amount);
 
         delete withdrawClaims[recordID];
     }
 
-    function addBridgeFee() external payable onlyRole(LIQUIDITY_MANAGER_ROLE) {
-        adminFeeAmount += msg.value;
-    }
-
-    function transferLiquidity(address _to, uint256 _amount) external nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) {
-        require(address(this).balance >= _amount, "Insufficient contract balance");
-        payable(_to).transfer(_amount);
-
-        // Emit LiquidityTransferred event
-        emit LiquidityTransferred(_to, _amount);
-    }
-
     function fund() public payable nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) returns (bool success) {
         return true;
     }
+
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
+
+    receive() external payable {} // Add receive function
 }

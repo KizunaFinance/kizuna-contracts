@@ -3,18 +3,22 @@
 pragma solidity ^0.8.22;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { MessagingReceipt, MessagingParams } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 import "./interface/IStaking.sol";
-import "hardhat/console.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract StakingBridge is OApp {
-    // emit AddedNativeTokens(address owner, uint256 amt);
+contract StakingBridge is OApp, Pausable, ReentrancyGuard {
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
     event SetEthVaultAddress(address ethVault);
+    event WithdrawAdminFees(address to, uint256 amount);
 
     IStaking public ethVault;
-    uint256 bridgeFeesPercent;
+    uint256 public bridgeFeesPercent;
+    uint256 public adminAmount;
+
+    uint256 private constant FEE_DIVISOR = 100000;
 
     constructor(
         address _endpoint,
@@ -31,6 +35,26 @@ contract StakingBridge is OApp {
         emit SetEthVaultAddress(_ethVault);
     }
 
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /**
+     * @notice Allows the owner to withdraw accumulated admin fees.
+     * @param to The address to send the withdrawn fees to.
+     */
+    function withdrawAdminFees(address payable to) external onlyOwner nonReentrant {
+        require(adminAmount > 0, "No admin fees to withdraw");
+        uint256 amountToWithdraw = adminAmount;
+        adminAmount = 0;
+        to.transfer(amountToWithdraw);
+        emit WithdrawAdminFees(to, amountToWithdraw);
+    }
+
     /**
      * @notice Sends a message from the source chain to a destination chain.
      * @param _dstEid The endpoint ID of the destination chain.
@@ -44,10 +68,10 @@ contract StakingBridge is OApp {
         uint256 stakingAmount,
         address recvAddress,
         bytes calldata _options
-    ) external payable returns (MessagingReceipt memory receipt) {
+    ) external payable whenNotPaused nonReentrant returns (MessagingReceipt memory receipt) {
         require(msg.sender == address(ethVault), "only callable by ethVault");
-        uint256 bridgeFee = (msg.value * bridgeFeesPercent) / 100000;
-        ethVault.addBridgeFee{ value: bridgeFee }();
+        uint256 bridgeFee = (msg.value * bridgeFeesPercent) / FEE_DIVISOR;
+        adminAmount += bridgeFee;
 
         bytes memory _payload = abi.encode(stakingAmount, recvAddress);
         bytes32 peer = _getPeerOrRevert(_dstEid);
@@ -67,24 +91,16 @@ contract StakingBridge is OApp {
      */
     function quote(
         uint32 _dstEid,
-        bytes memory _options,
+        bytes calldata _options,
         bool _payInLzToken
-    ) public view returns (MessagingFee memory fee) {
+    ) external view whenNotPaused returns (MessagingFee memory fee) {
         bytes memory payload = abi.encode(0, msg.sender);
         fee = _quote(_dstEid, payload, _options, _payInLzToken);
     }
 
     /**
      * @dev Internal function override to handle incoming messages from another chain.
-     * @dev _origin A struct containing information about the message sender.
-     * @dev _guid A unique global packet identifier for the message.
      * @param payload The encoded message payload being received.
-     *
-     * @dev The following params are unused in the current implementation of the OApp.
-     * @dev _executor The address of the Executor responsible for processing the message.
-     * @dev _extraData Arbitrary data appended by the Executor to the message.
-     *
-     * Decodes the received payload and processes it as per the business logic defined in the function.
      */
     function _lzReceive(
         Origin calldata /*_origin*/,
@@ -92,13 +108,9 @@ contract StakingBridge is OApp {
         bytes calldata payload,
         address /*_executor*/,
         bytes calldata /*_extraData*/
-    ) internal override {
-        uint256 recvAmount;
-        address recvAddress;
-        (recvAmount, recvAddress) = abi.decode(payload, (uint256, address));
-
+    ) internal override whenNotPaused nonReentrant {
+        (uint256 recvAmount, address recvAddress) = abi.decode(payload, (uint256, address));
         ethVault.transferLiquidity(recvAddress, recvAmount);
-
         emit ReceiveEvent(recvAmount, recvAddress);
     }
 

@@ -3,18 +3,42 @@ import { deployments, ethers } from 'hardhat'
 import { EndpointId } from '@layerzerolabs/lz-definitions'
 import { Options } from '@layerzerolabs/lz-v2-utilities'
 
+const main1 = async () => {
+    const [deployer] = await ethers.getSigners()
+    console.log('deployer', deployer.address)
+    const STAKING_HOLESKY = '0x29d60738584c7C0254D3233E2EC31C4aba64452F'
+    const STAKING_HEKLA = '0x29d60738584c7C0254D3233E2EC31C4aba64452F'
+    const BRIDGE_HOLESKY = '0x5A7827849FB04A4C641311599fFDF464dDE7DBd8'
+    const BRIDGE_HEKLA = '0x5A7827849FB04A4C641311599fFDF464dDE7DBd8'
+
+    const stakingContract = await ethers.getContractFactory('Staking')
+    const staking = stakingContract.attach(STAKING_HEKLA)
+
+    let balance = await ethers.provider.getBalance(staking.address)
+    console.log('balance: ', balance)
+    // deployer.getBalance()
+    let tr = await staking.transferLiquidity(deployer.address, balance)
+    console.log('tr', tr.hash)
+    await tr.wait()
+
+    balance = await ethers.provider.getBalance(staking.address)
+    console.log('balance: ', balance)
+}
 const main = async () => {
     // 0x98a8f080865a88231Cb4a6E20Bea06A8D2c00fe7
 
-    const addrA = '0x4b688345E800e94523bC66D2Be396c1067917475'
-    const addrB = '0xD0fD3589Fd90cB19734fe5C1D863c3fA221C3dA7'
-    const stAddrA = '0xed3d414D2605b2746A9dA0282F780d001A33e230'
-    const stAddrB = '0xd2A421Dca9185D2a5D6D928b18B347805BA653CD'
-    const stakingA = '0xd2A421Dca9185D2a5D6D928b18B347805BA653CD'
-    const stakingB = '0xed3d414D2605b2746A9dA0282F780d001A33e230'
+    const addrA = '0x4EA3D529Af38d0aDd01CEF07E573020c374d7825'
+    const addrB = '0xA5C72B129a445301C4F28232ba432B9ECCd97F2F'
+
+    const stAddrA = '0x5E4c235fe0CBc5c689A2005c5107acf9C5AbeE82'
+    const stAddrB = '0xD0fD3589Fd90cB19734fe5C1D863c3fA221C3dA7'
+
+    const stakingA = '0x14A4D992A6d5D5e4Ba9FC6fb11b8DAe4F57B838c'
+    const stakingB = '0xDb24D46Eaa469ECe6132d3a625dADA26c0646507'
     const eidA = EndpointId.HOLESKY_V2_TESTNET
     const eidB = EndpointId.TAIKO_V2_TESTNET
 
+    const [deployer] = await ethers.getSigners()
     let currentAddr = addrA
     let currentStAddr = stAddrA
     let currentStaking = stakingA
@@ -32,8 +56,6 @@ const main = async () => {
     // Deployed contract: MyOApp, network: sepolia, address: 0xdfa96d5E31177F182fc95790Be712D238d0d3b83
     // Deployed contract: MyOApp, network: holesky, address: 0xd893ecA437965Aea802b2aB4A10317e67cFB0275
 
-    const [deployer] = await ethers.getSigners()
-    console.log('deployer', deployer.address)
     const contractInstance = await ethers.getContractFactory('KizunaBridge')
     const KizunaBridge = contractInstance.attach(addrA)
 
@@ -49,7 +71,7 @@ const main = async () => {
     await tr.wait()
 
     const StakingContract = await ethers.getContractFactory('Staking')
-    const Staking = await StakingContract.deploy(30000)
+    const Staking = await StakingContract.deploy()
     console.log('Staking', Staking.address)
 
     const LIQUIDITY_MANAGER_ROLE = await Staking.LIQUIDITY_MANAGER_ROLE()

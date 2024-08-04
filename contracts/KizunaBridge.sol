@@ -3,18 +3,26 @@
 pragma solidity ^0.8.22;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { OApp, MessagingFee, Origin } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OApp.sol";
 import { MessagingReceipt, MessagingParams } from "@layerzerolabs/lz-evm-oapp-v2/contracts/oapp/OAppSender.sol";
 import "./interface/IStaking.sol";
-import "hardhat/console.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract KizunaBridge is OApp {
+contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
     // emit AddedNativeTokens(address owner, uint256 amt);
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
     event SetEthVaultAddress(address ethVault);
+    event WithdrawAdminFees(address to, uint256 amount);
+    event FallbackCalled(address sender, uint256 value);
+    event Received(address sender, uint256 value);
 
     IStaking public ethVault;
-    uint256 bridgeFeesPercent;
+    uint256 public bridgeFeesPercent;
+    uint256 public adminAmount;
+
+    // Define minimum amount as a constant
+    uint256 public constant MIN_AMOUNT = 100000;
 
     constructor(
         address _endpoint,
@@ -31,6 +39,25 @@ contract KizunaBridge is OApp {
         emit SetEthVaultAddress(_ethVault);
     }
 
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /**
+     * @notice Allows the owner to withdraw accumulated admin fees.
+     * @param to The address to send the withdrawn fees to.
+     */
+    function withdrawAdminFees(address payable to) external onlyOwner nonReentrant {
+        require(adminAmount > 0, "No admin fees to withdraw");
+        to.transfer(adminAmount);
+        emit WithdrawAdminFees(to, adminAmount);
+        adminAmount = 0;
+    }
+
     /**
      * @notice Sends a message from the source chain to a destination chain.
      * @param _dstEid The endpoint ID of the destination chain.
@@ -44,17 +71,15 @@ contract KizunaBridge is OApp {
         uint256 fee,
         address recvAddress,
         bytes calldata _options
-    ) external payable returns (MessagingReceipt memory receipt) {
+    ) external payable whenNotPaused nonReentrant returns (MessagingReceipt memory receipt) {
         uint256 amount = msg.value - fee;
-        require(amount > 100000, "Not enough amount");
+        require(amount > MIN_AMOUNT, "Amount must be greater than minimum required");
         uint256 bridgeFee = (amount * bridgeFeesPercent) / 100000;
         amount -= bridgeFee;
-
-        console.log("bridgeFee:", bridgeFee);
-        ethVault.addBridgeFee{ value: bridgeFee }();
+        adminAmount += bridgeFee;
 
         bytes memory _payload = abi.encode(amount, recvAddress);
-        receipt = endpoint.send{ value: fee }( // solhint-disable-next-line check-send-result
+        receipt = endpoint.send{ value: fee }(
             MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
             payable(msg.sender)
         );
@@ -95,20 +120,21 @@ contract KizunaBridge is OApp {
         bytes calldata payload,
         address /*_executor*/,
         bytes calldata /*_extraData*/
-    ) internal override {
+    ) internal override whenNotPaused nonReentrant {
         uint256 recvAmount;
         address recvAddress;
         (recvAmount, recvAddress) = abi.decode(payload, (uint256, address));
-
-        // (bool success, ) = recvAddress.call{ value: recvAmount }("");
-        // require(success, "Transfer failed");
 
         ethVault.transferLiquidity(recvAddress, recvAmount);
 
         emit ReceiveEvent(recvAmount, recvAddress);
     }
 
-    fallback() external payable onlyOwner {}
+    fallback() external payable {
+        emit FallbackCalled(msg.sender, msg.value);
+    }
 
-    receive() external payable {}
+    receive() external payable {
+        emit Received(msg.sender, msg.value);
+    }
 }

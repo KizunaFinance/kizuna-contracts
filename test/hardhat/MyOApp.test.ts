@@ -66,8 +66,8 @@ describe('MyOApp Test', function () {
         mockEndpointV2A = await EndpointV2Mock.deploy(eidA)
         mockEndpointV2B = await EndpointV2Mock.deploy(eidB)
 
-        stakingA = await Staking.deploy(30000)
-        stakingB = await Staking.deploy(30000)
+        stakingA = await Staking.deploy()
+        stakingB = await Staking.deploy()
         // Deploying two instances of MyOApp contract and linking them to the mock LZEndpoint
         myOAppA = await MyOApp.deploy(mockEndpointV2A.address, ownerA.address, 300, stakingA.address)
         myOAppB = await MyOApp.deploy(mockEndpointV2B.address, ownerB.address, 300, stakingB.address)
@@ -132,6 +132,8 @@ describe('MyOApp Test', function () {
     })
     it('testing bridge send', async function () {
         // Assert initial state of data in both MyOApp instances
+        const adminFeePercent = 300 // 3%
+        const sendAmount = ethers.utils.parseEther('1')
         await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
         await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
 
@@ -142,16 +144,22 @@ describe('MyOApp Test', function () {
         ;[nativeFee] = await myOAppA.quote(eidB, options, false)
         console.log('nativeFee:', nativeFee)
 
-        console.log('value: ', ethers.utils.parseEther('1').add(nativeFee).toString())
-        const startBalanceB = await ethers.provider.getBalance(myOAppA.address)
+        console.log('value: ', sendAmount.add(nativeFee).toString())
+        const startBalanceA = await ethers.provider.getBalance(ownerA.address)
+        const startBalanceB = await ethers.provider.getBalance(ownerB.address)
 
         // Execute send operation from myOAppA
         await myOAppA.send(eidB, nativeFee, ownerB.address, options, {
-            value: ethers.utils.parseEther('1').add(nativeFee).toString(),
+            value: sendAmount.add(nativeFee).toString(),
         })
 
-        const finalBalanceB = await ethers.provider.getBalance(myOAppA.address)
+        const finalBalanceA = await ethers.provider.getBalance(ownerA.address)
+        const finalBalanceB = await ethers.provider.getBalance(ownerB.address)
+        console.log(startBalanceA.sub(finalBalanceA).toString())
         console.log(startBalanceB.sub(finalBalanceB).toString())
+        const adminFee = sendAmount.mul(adminFeePercent).div(100000)
+        console.log('start', finalBalanceB.sub(startBalanceB).toString(), sendAmount.sub(adminFee).toString())
+        expect(finalBalanceB.sub(startBalanceB).toString()).to.equal(sendAmount.sub(adminFee).toString())
     })
 
     it('testing withdrawByBridge', async function () {
@@ -265,43 +273,6 @@ describe('MyOApp Test', function () {
 
         stakedBalance = await stakingA.stakedBalances(userA.address)
         expect(stakedBalance.toString()).to.equal(stakeAmount2.toString())
-    })
-
-    it('testing bridge send with admin fees', async function () {
-        // Assert initial state of data in both MyOApp instances
-        await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
-        await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
-
-        const options = Options.newOptions().addExecutorLzReceiveOption(200000, 0).toHex().toString()
-        const adminFeePercent = 300 // 3%
-
-        // Define native fee and quote for the message send operation
-        let nativeFee = ethers.BigNumber.from('0')
-        ;[nativeFee] = await myOAppA.quote(eidB, options, false)
-
-        // Calculate the admin fee
-        nativeFee = nativeFee.mul(100000).div(100000 - adminFeePercent)
-
-        console.log('nativeFee:', nativeFee.toString())
-        console.log('value: ', ethers.utils.parseEther('1').add(nativeFee).toString())
-        const startBalanceA = await ethers.provider.getBalance(myOAppA.address)
-
-        // Execute send operation from myOAppA
-        await myOAppA.send(eidB, nativeFee, ownerB.address, options, {
-            value: ethers.utils.parseEther('1').add(nativeFee).toString(),
-        })
-
-        const finalBalanceA = await ethers.provider.getBalance(myOAppA.address)
-        const adminFeeAmount = ethers.utils.parseEther('1').mul(adminFeePercent).div(10000)
-
-        console.log('startBalanceA:', startBalanceA.toString())
-        console.log('finalBalanceA:', finalBalanceA.toString())
-        console.log('adminFeeAmount:', adminFeeAmount.toString())
-
-        // Verify the admin fee was deducted correctly
-        expect(startBalanceA.sub(finalBalanceA).toString()).to.equal(
-            ethers.utils.parseEther('1').add(nativeFee).toString()
-        )
     })
 
     // ... existing code ...
