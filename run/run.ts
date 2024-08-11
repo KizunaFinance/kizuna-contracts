@@ -27,35 +27,38 @@ const main1 = async () => {
 const main = async () => {
     // 0x98a8f080865a88231Cb4a6E20Bea06A8D2c00fe7
 
-    const addrA = '0x4EA3D529Af38d0aDd01CEF07E573020c374d7825'
-    const addrB = '0xA5C72B129a445301C4F28232ba432B9ECCd97F2F'
+    //     Deployed contract: KizunaBridge, network: holesky, address: 0x92889DF1b03AfB5CAc826d1AF6d55B757D65E3E2
+    // Deployed contract: KizunaBridge, network: hekla, address: 0x4fd77fd045c2d88dbC48653a14b08B7d3c730F09
 
-    const stAddrA = '0x5E4c235fe0CBc5c689A2005c5107acf9C5AbeE82'
-    const stAddrB = '0xD0fD3589Fd90cB19734fe5C1D863c3fA221C3dA7'
+    const addrA = '0x92889DF1b03AfB5CAc826d1AF6d55B757D65E3E2'
+    const addrB = '0x4fd77fd045c2d88dbC48653a14b08B7d3c730F09'
 
-    const stakingA = '0x356c1eEF5922411D680555325591DB05bE8A9902'
+    const stAddrA = '0x3d523AD54161576614711892723971F371DdE786'
+    const stAddrB = '0x5fAA85073B0633e18E72B7738BcCDf61C64C5a2B'
+
+    const stakingA = '0x0a713535De91b3A4755F407213288aEf5E951595'
     const stakingB = '0xaf3f3CE84178De19FBbFe672448BBACF52271999'
     const eidA = EndpointId.HOLESKY_V2_TESTNET
     const eidB = EndpointId.TAIKO_V2_TESTNET
 
     const [deployer] = await ethers.getSigners()
-    let currentAddr = addrA
-    let currentStAddr = stAddrA
-    let currentStaking = stakingA
-    let currentEid = eidA
-    let opAddr = addrB
-    let opStAddr = stAddrB
-    let opStaking = stakingB
-    let opEid = eidB
+    // let currentAddr = addrA
+    // let currentStAddr = stAddrA
+    // let currentStaking = stakingA
+    // let currentEid = eidA
+    // let opAddr = addrB
+    // let opStAddr = stAddrB
+    // let opStaking = stakingB
+    // let opEid = eidB
 
-    // let currentAddr = addrB
-    // let currentStAddr = stAddrB
-    // let currentStaking = stakingB
-    // let currentEid = eidB
-    // let opAddr = addrA
-    // let opStAddr = stAddrA
-    // let opStaking = stakingA
-    // let opEid = eidA
+    let currentAddr = addrB
+    let currentStAddr = stAddrB
+    let currentStaking = stakingB
+    let currentEid = eidB
+    let opAddr = addrA
+    let opStAddr = stAddrA
+    let opStaking = stakingA
+    let opEid = eidA
 
     // Deployed contract: MyOApp, network: sepolia, address: 0xdfa96d5E31177F182fc95790Be712D238d0d3b83
     // Deployed contract: MyOApp, network: holesky, address: 0xd893ecA437965Aea802b2aB4A10317e67cFB0275

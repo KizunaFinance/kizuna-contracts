@@ -18,16 +18,19 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
     event ReceivedAmount(uint256 recvAmount, address recvAddress);
     event RefundedAmount(bytes32 guid, address sender, uint256 amount);
     event SetBridgeFeesPercent(uint256 bridgeFeesPercent);
+    event SetRefundCooldownPeriod(uint256 cooldownPeriod);
 
     uint256 public constant BRIDGE_TYPE_AMOUNT = 0;
     uint256 public constant BRIDGE_TYPE_UNRECIEVED = 1;
     IStaking public ethVault;
     uint256 public bridgeFeesPercent;
     uint256 public adminAmount;
+    uint256 REFUND_COOLDOWN_PERIOD;
 
     struct SentAmount {
         address sender;
         uint256 amount;
+        uint256 timestamp;
     }
     mapping(bytes32 => SentAmount) public amountMap;
 
@@ -49,8 +52,13 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
     ) OApp(_endpoint, _delegate) Ownable(_delegate) {
         bridgeFeesPercent = _feesPercent;
         ethVault = _ethVault;
+        REFUND_COOLDOWN_PERIOD = 6 hours;
     }
 
+    function setRefundCooldownPeriod(uint256 _cooldownPeriod) external onlyOwner {
+        REFUND_COOLDOWN_PERIOD = _cooldownPeriod;
+        emit SetRefundCooldownPeriod(_cooldownPeriod);
+    }
     /**
      * @notice Sets the bridge fees percent.
      * @param _feesPercent The new bridge fees percent.
@@ -119,7 +127,7 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
             MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
             payable(msg.sender)
         );
-        amountMap[receipt.guid] = SentAmount({ sender: msg.sender, amount: amount });
+        amountMap[receipt.guid] = SentAmount({ sender: msg.sender, amount: amount, timestamp: block.timestamp });
 
         ethVault.fund{ value: amount }();
         emit SendAmount(msg.sender, amount, recvAddress, receipt);
@@ -204,13 +212,16 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
                 revert("Insufficient balance in vault");
             }
             ethVault.transferLiquidity(recvAddress, recvAmount);
-            amountMap[_guid] = SentAmount({ sender: recvAddress, amount: recvAmount });
+            amountMap[_guid] = SentAmount({ sender: recvAddress, amount: recvAmount, timestamp: block.timestamp });
             emit ReceivedAmount(recvAmount, recvAddress);
         } else if (bridgeType == BRIDGE_TYPE_UNRECIEVED) {
             bytes32 guid;
             (bridgeType, guid) = abi.decode(payload, (uint256, bytes32));
             if (amountMap[guid].sender == address(0)) {
                 revert("guid not found or already refunded");
+            }
+            if (block.timestamp - amountMap[guid].timestamp < REFUND_COOLDOWN_PERIOD) {
+                revert("Refund cooldown period has not expired");
             }
 
             ethVault.transferLiquidity(amountMap[guid].sender, amountMap[guid].amount);
