@@ -33,8 +33,8 @@ const main = async () => {
     const stAddrA = '0x5E4c235fe0CBc5c689A2005c5107acf9C5AbeE82'
     const stAddrB = '0xD0fD3589Fd90cB19734fe5C1D863c3fA221C3dA7'
 
-    const stakingA = '0x14A4D992A6d5D5e4Ba9FC6fb11b8DAe4F57B838c'
-    const stakingB = '0xDb24D46Eaa469ECe6132d3a625dADA26c0646507'
+    const stakingA = '0x356c1eEF5922411D680555325591DB05bE8A9902'
+    const stakingB = '0xaf3f3CE84178De19FBbFe672448BBACF52271999'
     const eidA = EndpointId.HOLESKY_V2_TESTNET
     const eidB = EndpointId.TAIKO_V2_TESTNET
 
@@ -42,31 +42,35 @@ const main = async () => {
     let currentAddr = addrA
     let currentStAddr = stAddrA
     let currentStaking = stakingA
+    let currentEid = eidA
     let opAddr = addrB
     let opStAddr = stAddrB
     let opStaking = stakingB
+    let opEid = eidB
 
     // let currentAddr = addrB
     // let currentStAddr = stAddrB
     // let currentStaking = stakingB
+    // let currentEid = eidB
     // let opAddr = addrA
     // let opStAddr = stAddrA
     // let opStaking = stakingA
+    // let opEid = eidA
 
     // Deployed contract: MyOApp, network: sepolia, address: 0xdfa96d5E31177F182fc95790Be712D238d0d3b83
     // Deployed contract: MyOApp, network: holesky, address: 0xd893ecA437965Aea802b2aB4A10317e67cFB0275
 
     const contractInstance = await ethers.getContractFactory('KizunaBridge')
-    const KizunaBridge = contractInstance.attach(addrA)
+    const KizunaBridge = contractInstance.attach(currentAddr)
 
     const stakingBridgeContract = await ethers.getContractFactory('StakingBridge')
-    const stakingBridge = stakingBridgeContract.attach(stAddrA)
+    const stakingBridge = stakingBridgeContract.attach(currentStAddr)
 
-    let tr = await KizunaBridge.connect(deployer).setPeer(eidB, ethers.utils.zeroPad(addrB, 32))
+    let tr = await KizunaBridge.connect(deployer).setPeer(opEid, ethers.utils.zeroPad(opAddr, 32))
     console.log('tr', tr.hash)
     await tr.wait()
 
-    tr = await stakingBridge.connect(deployer).setPeer(eidB, ethers.utils.zeroPad(addrB, 32))
+    tr = await stakingBridge.connect(deployer).setPeer(opEid, ethers.utils.zeroPad(opAddr, 32))
     console.log('tr', tr.hash)
     await tr.wait()
 

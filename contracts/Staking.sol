@@ -22,33 +22,47 @@ contract Staking is AccessControl, ReentrancyGuard, Pausable {
     uint256 public LAST_CLAIM_ID;
     uint256 public constant COOLDOWN_PERIOD = 7 days;
 
-    IStakingBridge public StakingBridge; // Add public visibility
+    IStakingBridge public StakingBridge;
 
     // Define events
     event Staked(address indexed user, uint256 amount);
-    event Unstaked(address indexed user, uint256 amount, uint256 timestamp);
+    event Unstaked(address indexed user, uint256 amount, uint256 timestamp, uint256 recordID);
     event Withdrawn(address indexed user, uint256 amount);
+    event WithdrawnByBridge(address indexed user, uint256 amount, uint32 dstEid, address recvAddress);
     event LiquidityTransferred(address indexed user, uint256 amount);
     event SetStakingBridge(IStakingBridge _stakingBridge);
     event SetLiquidityManager(address _newManager);
+
+    mapping(address => uint256[]) public userClaims; // New mapping to store user claims
 
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(LIQUIDITY_MANAGER_ROLE, msg.sender);
     }
 
+    /**
+     * @notice Set a new liquidity manager
+     * @param _newManager The address of the new liquidity manager
+     */
     function setLiquidityManager(address _newManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_newManager != address(0), "Invalid address"); // Add validation
         _grantRole(LIQUIDITY_MANAGER_ROLE, _newManager);
         emit SetLiquidityManager(_newManager);
     }
 
+    /**
+     * @notice Set the staking bridge contract
+     * @param _stakingBridge The address of the staking bridge contract
+     */
     function setStakingBridge(IStakingBridge _stakingBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(address(_stakingBridge) != address(0), "Invalid address"); // Add validation
         StakingBridge = _stakingBridge;
         emit SetStakingBridge(_stakingBridge);
     }
 
+    /**
+     * @notice Stake ETH into the contract
+     */
     function stake() external payable nonReentrant whenNotPaused {
         require(msg.value > 0, "Cannot stake 0 ETH");
 
@@ -57,6 +71,10 @@ contract Staking is AccessControl, ReentrancyGuard, Pausable {
         emit Staked(msg.sender, msg.value);
     }
 
+    /**
+     * @notice Unstake a specified amount of ETH
+     * @param _amount The amount of ETH to unstake
+     */
     function unstake(uint256 _amount) external nonReentrant whenNotPaused {
         require(stakedBalances[msg.sender] >= _amount, "Insufficient staked balance");
 
@@ -65,11 +83,25 @@ contract Staking is AccessControl, ReentrancyGuard, Pausable {
         uint256 lastClaimID = LAST_CLAIM_ID;
 
         withdrawClaims[lastClaimID] = WithdrawClaim(msg.sender, block.timestamp, _amount);
+        userClaims[msg.sender].push(lastClaimID); // Record the claim ID for the user
         ++LAST_CLAIM_ID;
 
-        emit Unstaked(msg.sender, _amount, block.timestamp);
+        emit Unstaked(msg.sender, _amount, block.timestamp, lastClaimID);
     }
 
+    /**
+     * @notice Get the list of claim IDs for a user
+     * @param user The address of the user
+     * @return An array of claim IDs
+     */
+    function getUserClaims(address user) external view returns (uint256[] memory) {
+        return userClaims[user];
+    }
+
+    /**
+     * @notice Withdraw a specified claim after the cooldown period
+     * @param recordID The ID of the claim to withdraw
+     */
     function withdraw(uint256 recordID) external nonReentrant whenNotPaused {
         require(
             block.timestamp >= withdrawClaims[recordID].timestamp + COOLDOWN_PERIOD,
@@ -85,6 +117,13 @@ contract Staking is AccessControl, ReentrancyGuard, Pausable {
         delete withdrawClaims[recordID];
     }
 
+    /**
+     * @notice Withdraw a specified claim via the staking bridge after the cooldown period
+     * @param recordID The ID of the claim to withdraw
+     * @param _dstEid The destination chain ID
+     * @param recvAddress The address to receive the funds on the destination chain
+     * @param _options Additional options for the bridge transfer
+     */
     function withdrawByBridge(
         uint256 recordID,
         uint32 _dstEid,
@@ -100,22 +139,45 @@ contract Staking is AccessControl, ReentrancyGuard, Pausable {
 
         StakingBridge.send{ value: msg.value }(_dstEid, withdrawClaims[recordID].amount, recvAddress, _options);
 
-        emit Withdrawn(msg.sender, withdrawClaims[recordID].amount);
+        emit WithdrawnByBridge(msg.sender, withdrawClaims[recordID].amount, _dstEid, recvAddress);
 
         delete withdrawClaims[recordID];
     }
 
+    /**
+     * @notice Transfer liquidity to a specified address
+     * @param _to The address to transfer liquidity to
+     * @param _amount The amount of liquidity to transfer
+     */
+    function transferLiquidity(address _to, uint256 _amount) external onlyRole(LIQUIDITY_MANAGER_ROLE) {
+        payable(_to).transfer(_amount);
+        emit LiquidityTransferred(_to, _amount);
+    }
+
+    /**
+     * @notice Fund the contract with ETH
+     * @return success A boolean indicating success
+     */
     function fund() public payable nonReentrant onlyRole(LIQUIDITY_MANAGER_ROLE) returns (bool success) {
         return true;
     }
 
+    /**
+     * @notice Pause the contract
+     */
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
+    /**
+     * @notice Unpause the contract
+     */
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
+    /**
+     * @notice Receive function to accept ETH
+     */
     receive() external payable {} // Add receive function
 }

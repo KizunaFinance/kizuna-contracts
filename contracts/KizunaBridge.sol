@@ -10,20 +10,37 @@ import "./interface/IStaking.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
-    // emit AddedNativeTokens(address owner, uint256 amt);
-    event ReceiveEvent(uint256 recvAmount, address recvAddress);
     event SetEthVaultAddress(address ethVault);
     event WithdrawAdminFees(address to, uint256 amount);
     event FallbackCalled(address sender, uint256 value);
     event Received(address sender, uint256 value);
+    event SendAmount(address sender, uint256 amount, address recvAddress, MessagingReceipt receipt);
+    event ReceivedAmount(uint256 recvAmount, address recvAddress);
+    event RefundedAmount(bytes32 guid, address sender, uint256 amount);
+    event SetBridgeFeesPercent(uint256 bridgeFeesPercent);
 
+    uint256 public constant BRIDGE_TYPE_AMOUNT = 0;
+    uint256 public constant BRIDGE_TYPE_UNRECIEVED = 1;
     IStaking public ethVault;
     uint256 public bridgeFeesPercent;
     uint256 public adminAmount;
 
+    struct SentAmount {
+        address sender;
+        uint256 amount;
+    }
+    mapping(bytes32 => SentAmount) public amountMap;
+
     // Define minimum amount as a constant
     uint256 public constant MIN_AMOUNT = 100000;
 
+    /**
+     * @notice Constructor to initialize the KizunaBridge contract.
+     * @param _endpoint The endpoint address.
+     * @param _delegate The delegate address.
+     * @param _feesPercent The percentage of fees for the bridge.
+     * @param _ethVault The address of the ETH vault.
+     */
     constructor(
         address _endpoint,
         address _delegate,
@@ -34,15 +51,34 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
         ethVault = _ethVault;
     }
 
+    /**
+     * @notice Sets the bridge fees percent.
+     * @param _feesPercent The new bridge fees percent.
+     */
+    function setBridgeFeesPercent(uint256 _feesPercent) external onlyOwner {
+        bridgeFeesPercent = _feesPercent;
+        emit SetBridgeFeesPercent(_feesPercent);
+    }
+
+    /**
+     * @notice Sets the ETH vault address.
+     * @param _ethVault The new ETH vault address.
+     */
     function setEthVaultAddress(address _ethVault) external onlyOwner {
         ethVault = IStaking(_ethVault);
         emit SetEthVaultAddress(_ethVault);
     }
 
+    /**
+     * @notice Pauses the contract.
+     */
     function pause() external onlyOwner {
         _pause();
     }
 
+    /**
+     * @notice Unpauses the contract.
+     */
     function unpause() external onlyOwner {
         _unpause();
     }
@@ -61,12 +97,12 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
     /**
      * @notice Sends a message from the source chain to a destination chain.
      * @param _dstEid The endpoint ID of the destination chain.
-     * @param fee The message string to be sent.
+     * @param fee The fee for sending the message.
+     * @param recvAddress The address to receive the amount on the destination chain.
      * @param _options Additional options for message execution.
-     * @dev Encodes the message as bytes and sends it using the `_lzSend` internal function.
      * @return receipt A `MessagingReceipt` struct containing details of the message sent.
      */
-    function send(
+    function sendAmount(
         uint32 _dstEid,
         uint256 fee,
         address recvAddress,
@@ -78,62 +114,121 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
         amount -= bridgeFee;
         adminAmount += bridgeFee;
 
-        bytes memory _payload = abi.encode(amount, recvAddress);
+        bytes memory _payload = abi.encode(BRIDGE_TYPE_AMOUNT, amount, recvAddress);
         receipt = endpoint.send{ value: fee }(
             MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
             payable(msg.sender)
         );
+        amountMap[receipt.guid] = SentAmount({ sender: msg.sender, amount: amount });
+
         ethVault.fund{ value: amount }();
+        emit SendAmount(msg.sender, amount, recvAddress, receipt);
     }
 
     /**
-     * @notice Quotes the gas needed to pay for the full omnichain transaction in native gas or ZRO token.
-     * @param _dstEid Destination chain's endpoint ID.
-     * @param _options Message execution options (e.g., for sending gas to destination).
-     * @param _payInLzToken Whether to return fee in ZRO token.
-     * @return fee A `MessagingFee` struct containing the calculated gas fee in either the native token or ZRO token.
+     * @notice Sends a message for unreceived amounts from the source chain to a destination chain.
+     * @param _dstEid The endpoint ID of the destination chain.
+     * @param guid The unique identifier for the message.
+     * @param _options Additional options for message execution.
+     * @return receipt A `MessagingReceipt` struct containing details of the message sent.
      */
-    function quote(
+    function sendUnrecieved(
         uint32 _dstEid,
-        bytes memory _options,
-        bool _payInLzToken
+        bytes32 guid,
+        bytes calldata _options
+    ) external payable whenNotPaused nonReentrant returns (MessagingReceipt memory receipt) {
+        if (amountMap[guid].sender != address(0)) {
+            revert("Amount has already been received");
+        }
+        bytes memory _payload = abi.encode(BRIDGE_TYPE_UNRECIEVED, guid);
+        receipt = endpoint.send{ value: msg.value }(
+            MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
+            payable(msg.sender)
+        );
+    }
+
+    /**
+     * @notice Quotes the fee for sending an amount message.
+     * @param _dstEid The endpoint ID of the destination chain.
+     * @param amount The amount to be sent.
+     * @param recvAddress The address to receive the amount on the destination chain.
+     * @param _options Additional options for message execution.
+     * @return fee A `MessagingFee` struct containing the fee details.
+     */
+    function quoteAmount(
+        uint32 _dstEid,
+        uint256 amount,
+        address recvAddress,
+        bytes memory _options
     ) public view returns (MessagingFee memory fee) {
-        bytes memory payload = abi.encode(0, msg.sender);
-        fee = _quote(_dstEid, payload, _options, _payInLzToken);
+        bytes memory _payload = abi.encode(BRIDGE_TYPE_AMOUNT, amount, recvAddress);
+        fee = _quote(_dstEid, _payload, _options, false);
+    }
+
+    /**
+     * @notice Quotes the fee for sending an unreceived message.
+     * @param _dstEid The endpoint ID of the destination chain.
+     * @param guid The unique identifier for the message.
+     * @param _options Additional options for message execution.
+     * @return fee A `MessagingFee` struct containing the fee details.
+     */
+    function quoteUnrecieved(
+        uint32 _dstEid,
+        bytes32 guid,
+        bytes memory _options
+    ) public view returns (MessagingFee memory fee) {
+        bytes memory _payload = abi.encode(BRIDGE_TYPE_UNRECIEVED, guid);
+        fee = _quote(_dstEid, _payload, _options, false);
     }
 
     /**
      * @dev Internal function override to handle incoming messages from another chain.
-     * @dev _origin A struct containing information about the message sender.
-     * @dev _guid A unique global packet identifier for the message.
      * @param payload The encoded message payload being received.
-     *
-     * @dev The following params are unused in the current implementation of the OApp.
-     * @dev _executor The address of the Executor responsible for processing the message.
-     * @dev _extraData Arbitrary data appended by the Executor to the message.
-     *
+     * @param _guid A unique global packet identifier for the message.
      * Decodes the received payload and processes it as per the business logic defined in the function.
      */
     function _lzReceive(
         Origin calldata /*_origin*/,
-        bytes32 /*_guid*/,
+        bytes32 _guid,
         bytes calldata payload,
         address /*_executor*/,
         bytes calldata /*_extraData*/
-    ) internal override whenNotPaused nonReentrant {
-        uint256 recvAmount;
-        address recvAddress;
-        (recvAmount, recvAddress) = abi.decode(payload, (uint256, address));
+    ) internal override {
+        uint256 bridgeType = abi.decode(payload, (uint256));
 
-        ethVault.transferLiquidity(recvAddress, recvAmount);
+        if (bridgeType == BRIDGE_TYPE_AMOUNT) {
+            uint256 recvAmount;
+            address recvAddress;
+            (bridgeType, recvAmount, recvAddress) = abi.decode(payload, (uint256, uint256, address));
+            if (address(ethVault).balance < recvAmount) {
+                revert("Insufficient balance in vault");
+            }
+            ethVault.transferLiquidity(recvAddress, recvAmount);
+            amountMap[_guid] = SentAmount({ sender: recvAddress, amount: recvAmount });
+            emit ReceivedAmount(recvAmount, recvAddress);
+        } else if (bridgeType == BRIDGE_TYPE_UNRECIEVED) {
+            bytes32 guid;
+            (bridgeType, guid) = abi.decode(payload, (uint256, bytes32));
+            if (amountMap[guid].sender == address(0)) {
+                revert("guid not found or already refunded");
+            }
 
-        emit ReceiveEvent(recvAmount, recvAddress);
+            ethVault.transferLiquidity(amountMap[guid].sender, amountMap[guid].amount);
+            delete amountMap[guid];
+            emit RefundedAmount(guid, amountMap[guid].sender, amountMap[guid].amount);
+        }
     }
 
+    /**
+     * @notice Fallback function to handle incoming ether.
+     */
     fallback() external payable {
         emit FallbackCalled(msg.sender, msg.value);
     }
 
+    /**
+     * @notice Receive function to handle incoming ether.
+     */
     receive() external payable {
         emit Received(msg.sender, msg.value);
     }

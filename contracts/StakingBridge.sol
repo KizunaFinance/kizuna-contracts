@@ -13,6 +13,7 @@ contract StakingBridge is OApp, Pausable, ReentrancyGuard {
     event ReceiveEvent(uint256 recvAmount, address recvAddress);
     event SetEthVaultAddress(address ethVault);
     event WithdrawAdminFees(address to, uint256 amount);
+    event SetBridgeFeesPercent(uint256 bridgeFeesPercent);
 
     IStaking public ethVault;
     uint256 public bridgeFeesPercent;
@@ -20,6 +21,13 @@ contract StakingBridge is OApp, Pausable, ReentrancyGuard {
 
     uint256 private constant FEE_DIVISOR = 100000;
 
+    /**
+     * @notice Constructor to initialize the StakingBridge contract.
+     * @param _endpoint The endpoint address.
+     * @param _delegate The delegate address.
+     * @param _feesPercent The initial bridge fees percent.
+     * @param _ethVault The address of the ETH vault.
+     */
     constructor(
         address _endpoint,
         address _delegate,
@@ -30,15 +38,34 @@ contract StakingBridge is OApp, Pausable, ReentrancyGuard {
         ethVault = _ethVault;
     }
 
+    /**
+     * @notice Sets the bridge fees percent.
+     * @param _feesPercent The new bridge fees percent.
+     */
+    function setBridgeFeesPercent(uint256 _feesPercent) external onlyOwner {
+        bridgeFeesPercent = _feesPercent;
+        emit SetBridgeFeesPercent(_feesPercent);
+    }
+
+    /**
+     * @notice Sets the ETH vault address.
+     * @param _ethVault The new ETH vault address.
+     */
     function setEthVaultAddress(address _ethVault) external onlyOwner {
         ethVault = IStaking(_ethVault);
         emit SetEthVaultAddress(_ethVault);
     }
 
+    /**
+     * @notice Pauses the contract.
+     */
     function pause() external onlyOwner {
         _pause();
     }
 
+    /**
+     * @notice Unpauses the contract.
+     */
     function unpause() external onlyOwner {
         _unpause();
     }
@@ -47,7 +74,7 @@ contract StakingBridge is OApp, Pausable, ReentrancyGuard {
      * @notice Allows the owner to withdraw accumulated admin fees.
      * @param to The address to send the withdrawn fees to.
      */
-    function withdrawAdminFees(address payable to) external onlyOwner nonReentrant {
+    function withdrawAdminFees(address payable to) external onlyOwner nonReentrant whenNotPaused {
         require(adminAmount > 0, "No admin fees to withdraw");
         uint256 amountToWithdraw = adminAmount;
         adminAmount = 0;
@@ -58,9 +85,9 @@ contract StakingBridge is OApp, Pausable, ReentrancyGuard {
     /**
      * @notice Sends a message from the source chain to a destination chain.
      * @param _dstEid The endpoint ID of the destination chain.
-     * @param stakingAmount The message string to be sent.
+     * @param stakingAmount The staking amount to be sent.
+     * @param recvAddress The address to receive the staking amount.
      * @param _options Additional options for message execution.
-     * @dev Encodes the message as bytes and sends it using the `_lzSend` internal function.
      * @return receipt A `MessagingReceipt` struct containing details of the message sent.
      */
     function send(
@@ -114,7 +141,13 @@ contract StakingBridge is OApp, Pausable, ReentrancyGuard {
         emit ReceiveEvent(recvAmount, recvAddress);
     }
 
+    /**
+     * @notice Fallback function to receive ETH.
+     */
     fallback() external payable onlyOwner {}
 
+    /**
+     * @notice Receive function to receive ETH.
+     */
     receive() external payable {}
 }

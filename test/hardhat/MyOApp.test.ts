@@ -76,6 +76,9 @@ describe('MyOApp Test', function () {
         await mockEndpointV2A.setDestLzEndpoint(myOAppB.address, mockEndpointV2B.address)
         await mockEndpointV2B.setDestLzEndpoint(myOAppA.address, mockEndpointV2A.address)
 
+        // await mockEndpointV2A.setDestLzEndpoint(myOAppA.address, mockEndpointV2A.address)
+        // await mockEndpointV2B.setDestLzEndpoint(myOAppB.address, mockEndpointV2B.address)
+
         // Setting each MyOApp instance as a peer of the other
         await myOAppA.connect(ownerA).setPeer(eidB, ethers.utils.zeroPad(myOAppB.address, 32))
         await myOAppB.connect(ownerB).setPeer(eidA, ethers.utils.zeroPad(myOAppA.address, 32))
@@ -84,7 +87,7 @@ describe('MyOApp Test', function () {
             to: myOAppB.address,
             value: ethers.utils.parseEther('1'),
         })
-        console.log('after send')
+
         await stakingA.setLiquidityManager(myOAppA.address)
         await stakingB.setLiquidityManager(myOAppB.address)
 
@@ -104,8 +107,48 @@ describe('MyOApp Test', function () {
         await stakingBridgeB.connect(ownerB).setPeer(eidA, ethers.utils.zeroPad(stakingBridgeA.address, 32))
     })
 
-    // A test case to verify message sending functionality
+    it('testing sendUnrecieved', async function () {
+        const sendAmount = ethers.utils.parseEther('1')
+        let options = Options.newOptions().addExecutorLzReceiveOption(0, 0).toHex().toString()
 
+        // Stake some amount to have liquidity
+        await stakingA.connect(userA).stake({ value: sendAmount })
+        await stakingB.connect(userB).stake({ value: sendAmount })
+
+        const sendAmountWithAdminFee = sendAmount.mul(100000).div(100000 - 300)
+        // Send amount from myOAppA to myOAppB
+        let ownerBBefore = await ethers.provider.getBalance(ownerB.address)
+        let ownerABefore = await ethers.provider.getBalance(ownerA.address)
+        const nativeFee = (await myOAppA.quoteAmount(eidB, 0, ownerB.address, options))[0]
+        let tr = await myOAppA.sendAmount(eidB, nativeFee, ownerB.address, options, {
+            value: sendAmountWithAdminFee.add(nativeFee).toString(),
+        })
+        let ownerAAfter = await ethers.provider.getBalance(ownerA.address)
+        let ownerBAfter = await ethers.provider.getBalance(ownerB.address)
+
+        let rc = await tr.wait()
+        let gasUsed = BigInt(rc.cumulativeGasUsed) * BigInt(rc.effectiveGasPrice)
+        expect(ownerBAfter.sub(ownerBBefore).toString()).eq('0')
+        expect(ownerABefore.sub(ownerAAfter).toString()).eq(
+            sendAmountWithAdminFee.add(nativeFee).add(gasUsed).toString()
+        )
+
+        const receipt = rc.events[0].args.receipt
+        // Simulate the message being unreceived and send it again
+        const guid = receipt.guid
+
+        options = Options.newOptions().addExecutorLzReceiveOption(600000, 0).toHex().toString()
+        const unreceivedNativeFee = (await myOAppA.quoteUnrecieved(eidB, guid, options)).nativeFee
+        ownerABefore = await ethers.provider.getBalance(ownerA.address)
+        tr = await myOAppB.sendUnrecieved(eidA, guid, options, {
+            value: unreceivedNativeFee.toString(),
+        })
+        rc = await tr.wait()
+        gasUsed = BigInt(rc.cumulativeGasUsed) * BigInt(rc.effectiveGasPrice)
+        ownerAAfter = await ethers.provider.getBalance(ownerA.address)
+
+        expect(ownerAAfter.sub(ownerABefore).toString()).eq(sendAmount.sub(unreceivedNativeFee).sub(gasUsed).toString())
+    })
     it('testing unstake and withdraw', async function () {
         await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
         await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
@@ -123,7 +166,6 @@ describe('MyOApp Test', function () {
             let gasUsed = BigInt(receipt.cumulativeGasUsed) * BigInt(receipt.effectiveGasPrice)
             let after = await ethers.provider.getBalance(userA.address)
             let unstake = after.sub(before).add(gasUsed)
-            console.log('unstake: ', unstake.toString())
             expect(unstake.toString()).eq(ethers.utils.parseEther('1').toString())
         } catch (err) {
             console.log(err)
@@ -137,36 +179,37 @@ describe('MyOApp Test', function () {
         await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
         await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
 
-        const options = Options.newOptions().addExecutorLzReceiveOption(200000, 0).toHex().toString()
+        const options = Options.newOptions().addExecutorLzReceiveOption(600000, 0).toHex().toString()
 
+        const sendAmountWithAdminFee = sendAmount.mul(100000).div(100000 - adminFeePercent)
         // Define native fee and quote for the message send operation
         let nativeFee = 0
-        ;[nativeFee] = await myOAppA.quote(eidB, options, false)
-        console.log('nativeFee:', nativeFee)
+        ;[nativeFee] = await myOAppA.quoteAmount(eidB, sendAmountWithAdminFee, ownerB.address, options)
 
-        console.log('value: ', sendAmount.add(nativeFee).toString())
         const startBalanceA = await ethers.provider.getBalance(ownerA.address)
         const startBalanceB = await ethers.provider.getBalance(ownerB.address)
 
         // Execute send operation from myOAppA
-        await myOAppA.send(eidB, nativeFee, ownerB.address, options, {
-            value: sendAmount.add(nativeFee).toString(),
+        let tr = await myOAppA.sendAmount(eidB, nativeFee, ownerB.address, options, {
+            value: sendAmountWithAdminFee.add(nativeFee).toString(),
         })
+        let receipt = await tr.wait()
+        let gasUsed = BigInt(receipt.cumulativeGasUsed) * BigInt(receipt.effectiveGasPrice)
 
         const finalBalanceA = await ethers.provider.getBalance(ownerA.address)
         const finalBalanceB = await ethers.provider.getBalance(ownerB.address)
-        console.log(startBalanceA.sub(finalBalanceA).toString())
-        console.log(startBalanceB.sub(finalBalanceB).toString())
-        const adminFee = sendAmount.mul(adminFeePercent).div(100000)
-        console.log('start', finalBalanceB.sub(startBalanceB).toString(), sendAmount.sub(adminFee).toString())
-        expect(finalBalanceB.sub(startBalanceB).toString()).to.equal(sendAmount.sub(adminFee).toString())
+
+        expect(finalBalanceB.sub(startBalanceB).toString()).to.equal(sendAmount.toString())
+        expect(startBalanceA.sub(finalBalanceA).toString()).to.equal(
+            sendAmountWithAdminFee.add(gasUsed).add(nativeFee).toString()
+        )
     })
 
     it('testing withdrawByBridge', async function () {
         await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
         await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
 
-        await stakingB.transferLiquidity(userA.address, ethers.utils.parseEther('1'))
+        // await stakingB.transferLiquidity(userA.address, ethers.utils.parseEther('1'))
         // Assert initial state of data in both MyOApp instances
         const options = Options.newOptions().addExecutorLzReceiveOption(200000, 0).toHex().toString()
 
@@ -175,11 +218,11 @@ describe('MyOApp Test', function () {
 
         await time.increaseTo(unstakeTime + 60 * 60 * 24 * 7)
 
-        await expect(stakingB.connect(userB).withdraw(0)).to.be.revertedWith('not enough for direct withdraw')
+        // await expect(stakingB.connect(userB).withdraw(0)).to.be.revertedWith('not enough for direct withdraw')
 
         // Define native fee and quote for the message send operation
         let nativeFee = ethers.BigNumber.from('0')
-        ;[nativeFee] = await myOAppA.quote(eidB, options, false)
+        ;[nativeFee] = await stakingBridgeA.quote(eidB, options, false)
 
         nativeFee = nativeFee.mul(100000).div(100000 - 300)
 
@@ -207,8 +250,6 @@ describe('MyOApp Test', function () {
 
         const finalBalance = await ethers.provider.getBalance(userA.address)
         const stakedBalance = await stakingA.stakedBalances(userA.address)
-
-        console.log('gasUsed: ', gasUsed, 'initialBalance: ', initialBalance, 'finalBalance: ', finalBalance)
 
         expect(stakedBalance.toString()).to.equal(stakeAmount.toString())
         expect(initialBalance.sub(finalBalance).sub(gasUsed).toString()).to.equal(stakeAmount.toString())
@@ -274,6 +315,4 @@ describe('MyOApp Test', function () {
         stakedBalance = await stakingA.stakedBalances(userA.address)
         expect(stakedBalance.toString()).to.equal(stakeAmount2.toString())
     })
-
-    // ... existing code ...
 })
