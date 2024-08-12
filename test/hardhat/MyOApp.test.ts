@@ -147,8 +147,20 @@ describe('MyOApp Test', function () {
         gasUsed = BigInt(rc.cumulativeGasUsed) * BigInt(rc.effectiveGasPrice)
         ownerAAfter = await ethers.provider.getBalance(ownerA.address)
 
+        expect(ownerABefore.sub(ownerAAfter).toString()).eq(unreceivedNativeFee.add(gasUsed).toString())
+
+        await time.increaseTo((await time.latest()) + 6 * 60 * 60)
+        ownerABefore = await ethers.provider.getBalance(ownerA.address)
+        tr = await myOAppB.sendUnrecieved(eidA, guid, options, {
+            value: unreceivedNativeFee.toString(),
+        })
+        rc = await tr.wait()
+        gasUsed = BigInt(rc.cumulativeGasUsed) * BigInt(rc.effectiveGasPrice)
+        ownerAAfter = await ethers.provider.getBalance(ownerA.address)
+
         expect(ownerAAfter.sub(ownerABefore).toString()).eq(sendAmount.sub(unreceivedNativeFee).sub(gasUsed).toString())
     })
+
     it('testing unstake and withdraw', async function () {
         await stakingA.connect(userA).stake({ value: ethers.utils.parseEther('1') })
         await stakingB.connect(userB).stake({ value: ethers.utils.parseEther('1') })
@@ -314,5 +326,45 @@ describe('MyOApp Test', function () {
 
         stakedBalance = await stakingA.stakedBalances(userA.address)
         expect(stakedBalance.toString()).to.equal(stakeAmount2.toString())
+    })
+
+    it('sendUnreceived should revert if receive and transfer was successful', async function () {
+        const sendAmount = ethers.utils.parseEther('1')
+        let options = Options.newOptions().addExecutorLzReceiveOption(600000, 0).toHex().toString()
+
+        // Stake some amount to have liquidity
+        await stakingA.connect(userA).stake({ value: sendAmount })
+        await stakingB.connect(userB).stake({ value: sendAmount })
+
+        const sendAmountWithAdminFee = sendAmount.mul(100000).div(100000 - 300)
+        // Send amount from myOAppA to myOAppB
+        let ownerBBefore = await ethers.provider.getBalance(ownerB.address)
+        let ownerABefore = await ethers.provider.getBalance(ownerA.address)
+        const nativeFee = (await myOAppA.quoteAmount(eidB, 0, ownerB.address, options))[0]
+        let tr = await myOAppA.sendAmount(eidB, nativeFee, ownerB.address, options, {
+            value: sendAmountWithAdminFee.add(nativeFee).toString(),
+        })
+        let ownerAAfter = await ethers.provider.getBalance(ownerA.address)
+        let ownerBAfter = await ethers.provider.getBalance(ownerB.address)
+
+        let rc = await tr.wait()
+        let gasUsed = BigInt(rc.cumulativeGasUsed) * BigInt(rc.effectiveGasPrice)
+        // expect(ownerBAfter.sub(ownerBBefore).toString()).eq('0')
+        // expect(ownerABefore.sub(ownerAAfter).toString()).eq(
+        //     sendAmountWithAdminFee.add(nativeFee).add(gasUsed).toString()
+        // )
+
+        const receipt = rc.events[0].args.receipt
+        // Simulate the message being unreceived and send it again
+        const guid = receipt.guid
+
+        options = Options.newOptions().addExecutorLzReceiveOption(600000, 0).toHex().toString()
+        const unreceivedNativeFee = (await myOAppA.quoteUnrecieved(eidB, guid, options)).nativeFee
+        ownerABefore = await ethers.provider.getBalance(ownerA.address)
+        await expect(
+            myOAppB.sendUnrecieved(eidA, guid, options, {
+                value: unreceivedNativeFee.toString(),
+            })
+        ).to.be.revertedWith('Amount has already been received')
     })
 })
