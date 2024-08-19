@@ -16,23 +16,11 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
     event Received(address sender, uint256 value);
     event SendAmount(address sender, uint256 amount, address recvAddress, MessagingReceipt receipt);
     event ReceivedAmount(uint256 recvAmount, address recvAddress);
-    event RefundedAmount(bytes32 guid, address sender, uint256 amount);
     event SetBridgeFeesPercent(uint256 bridgeFeesPercent);
-    event SetRefundCooldownPeriod(uint256 cooldownPeriod);
 
-    uint256 public constant BRIDGE_TYPE_AMOUNT = 0;
-    uint256 public constant BRIDGE_TYPE_UNRECIEVED = 1;
     IStaking public ethVault;
     uint256 public bridgeFeesPercent;
     uint256 public adminAmount;
-    uint256 REFUND_COOLDOWN_PERIOD;
-
-    struct SentAmount {
-        address sender;
-        uint256 amount;
-        uint256 timestamp;
-    }
-    mapping(bytes32 => SentAmount) public amountMap;
 
     // Define minimum amount as a constant
     uint256 public constant MIN_AMOUNT = 100000;
@@ -52,13 +40,8 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
     ) OApp(_endpoint, _delegate) Ownable(_delegate) {
         bridgeFeesPercent = _feesPercent;
         ethVault = _ethVault;
-        REFUND_COOLDOWN_PERIOD = 6 hours;
     }
 
-    function setRefundCooldownPeriod(uint256 _cooldownPeriod) external onlyOwner {
-        REFUND_COOLDOWN_PERIOD = _cooldownPeriod;
-        emit SetRefundCooldownPeriod(_cooldownPeriod);
-    }
     /**
      * @notice Sets the bridge fees percent.
      * @param _feesPercent The new bridge fees percent.
@@ -122,37 +105,14 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
         amount -= bridgeFee;
         adminAmount += bridgeFee;
 
-        bytes memory _payload = abi.encode(BRIDGE_TYPE_AMOUNT, amount, recvAddress);
+        bytes memory _payload = abi.encode(amount, recvAddress);
         receipt = endpoint.send{ value: fee }(
             MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
             payable(msg.sender)
         );
-        amountMap[receipt.guid] = SentAmount({ sender: msg.sender, amount: amount, timestamp: block.timestamp });
 
         ethVault.fund{ value: amount }();
         emit SendAmount(msg.sender, amount, recvAddress, receipt);
-    }
-
-    /**
-     * @notice Sends a message for unreceived amounts from the source chain to a destination chain.
-     * @param _dstEid The endpoint ID of the destination chain.
-     * @param guid The unique identifier for the message.
-     * @param _options Additional options for message execution.
-     * @return receipt A `MessagingReceipt` struct containing details of the message sent.
-     */
-    function sendUnrecieved(
-        uint32 _dstEid,
-        bytes32 guid,
-        bytes calldata _options
-    ) external payable whenNotPaused nonReentrant returns (MessagingReceipt memory receipt) {
-        if (amountMap[guid].sender != address(0)) {
-            revert("Amount has already been received");
-        }
-        bytes memory _payload = abi.encode(BRIDGE_TYPE_UNRECIEVED, guid);
-        receipt = endpoint.send{ value: msg.value }(
-            MessagingParams(_dstEid, _getPeerOrRevert(_dstEid), _payload, _options, false),
-            payable(msg.sender)
-        );
     }
 
     /**
@@ -169,65 +129,30 @@ contract KizunaBridge is OApp, Pausable, ReentrancyGuard {
         address recvAddress,
         bytes memory _options
     ) public view returns (MessagingFee memory fee) {
-        bytes memory _payload = abi.encode(BRIDGE_TYPE_AMOUNT, amount, recvAddress);
-        fee = _quote(_dstEid, _payload, _options, false);
-    }
-
-    /**
-     * @notice Quotes the fee for sending an unreceived message.
-     * @param _dstEid The endpoint ID of the destination chain.
-     * @param guid The unique identifier for the message.
-     * @param _options Additional options for message execution.
-     * @return fee A `MessagingFee` struct containing the fee details.
-     */
-    function quoteUnrecieved(
-        uint32 _dstEid,
-        bytes32 guid,
-        bytes memory _options
-    ) public view returns (MessagingFee memory fee) {
-        bytes memory _payload = abi.encode(BRIDGE_TYPE_UNRECIEVED, guid);
+        bytes memory _payload = abi.encode(amount, recvAddress);
         fee = _quote(_dstEid, _payload, _options, false);
     }
 
     /**
      * @dev Internal function override to handle incoming messages from another chain.
      * @param payload The encoded message payload being received.
-     * @param _guid A unique global packet identifier for the message.
      * Decodes the received payload and processes it as per the business logic defined in the function.
      */
     function _lzReceive(
         Origin calldata /*_origin*/,
-        bytes32 _guid,
+        bytes32,
         bytes calldata payload,
         address /*_executor*/,
         bytes calldata /*_extraData*/
     ) internal override {
-        uint256 bridgeType = abi.decode(payload, (uint256));
-
-        if (bridgeType == BRIDGE_TYPE_AMOUNT) {
-            uint256 recvAmount;
-            address recvAddress;
-            (bridgeType, recvAmount, recvAddress) = abi.decode(payload, (uint256, uint256, address));
-            if (address(ethVault).balance < recvAmount) {
-                revert("Insufficient balance in vault");
-            }
-            ethVault.transferLiquidity(recvAddress, recvAmount);
-            amountMap[_guid] = SentAmount({ sender: recvAddress, amount: recvAmount, timestamp: block.timestamp });
-            emit ReceivedAmount(recvAmount, recvAddress);
-        } else if (bridgeType == BRIDGE_TYPE_UNRECIEVED) {
-            bytes32 guid;
-            (bridgeType, guid) = abi.decode(payload, (uint256, bytes32));
-            if (amountMap[guid].sender == address(0)) {
-                revert("guid not found or already refunded");
-            }
-            if (block.timestamp - amountMap[guid].timestamp < REFUND_COOLDOWN_PERIOD) {
-                revert("Refund cooldown period has not expired");
-            }
-
-            ethVault.transferLiquidity(amountMap[guid].sender, amountMap[guid].amount);
-            delete amountMap[guid];
-            emit RefundedAmount(guid, amountMap[guid].sender, amountMap[guid].amount);
+        uint256 recvAmount;
+        address recvAddress;
+        (recvAmount, recvAddress) = abi.decode(payload, (uint256, address));
+        if (address(ethVault).balance < recvAmount) {
+            revert("Insufficient balance in vault");
         }
+        ethVault.transferLiquidity(recvAddress, recvAmount);
+        emit ReceivedAmount(recvAmount, recvAddress);
     }
 
     /**
